@@ -39,6 +39,7 @@
     <Compile Include="Report.py" />
     <Compile Include="test_mnist.py" />
     <Compile Include="TrainingRun.py" />
+    <Compile Include="WeightSet.py" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" />
 </Project>

@@ -38,13 +38,13 @@ def main():
                     'visualize' : True}
 
     trainer = TrainingRun(model,data,report_args,
-                          learn_rate=5,
-                          learn_rate_decay=.997,
-                          momentum=[(1,.5),(400,0.95)],
+                          learn_rate=2,
+                          learn_rate_decay=.995,
+                          momentum=[(1,.5),(500,0.9)],
                           batchsize=64)
 
     tic()
-    trainer.train(3000)
+    trainer.train(1000)
     print ("Training took %.1fs" % toc())
 
     #####################################################

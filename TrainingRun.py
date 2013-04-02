@@ -20,11 +20,11 @@ class TrainingRun(object):
         self.batchsize        = batchsize
         self.batches          = data.train.make_batches(batchsize)
         self.epochs           = epochs
+        self.epoch = 0
 
         # wstep is pre-allocated memory for storing gradient matrices
-        self.wstep      = model.make_weights()
-        self.wstep_prev = model.make_weights() if momentum else None
-        self.epoch = 0
+        self._wgrad = model.make_weights()
+        self._wstep = model.make_weights() if momentum else None
        
         if report_args['verbose']: self.log = TrainingReport(self,**report_args) 
         else:                      self.log = lambda event: 0  # do nothing
@@ -33,8 +33,8 @@ class TrainingRun(object):
         '''
         Train the current model up the the maximum number of epochs.
         '''
-        model,weights    = self.model,self.model.weights
-        wstep,wstep_prev = self.wstep,self.wstep_prev
+        model,weights = self.model,self.model.weights
+        wgrad,wstep   = self._wgrad,self._wstep
 
         self.log('start')
 
@@ -48,22 +48,23 @@ class TrainingRun(object):
 
             # Inner loop over one shuffled sweep of the data
             for batch in self.batches:
-                # Add Nesterov look-ahead momentum, before computing gradient
                 if self.momentum:
-                    weights.step_by(wstep_prev,self.momentum)
-
-                # Compute gradient, storing it in wstep
-                model.grad(batch,out=wstep)
-                
-                if self.momentum:
-                    # Add momentum to the step, then adjust the weights
-                    wstep *= -self.learn_rate
+                    # Add Nesterov look-ahead momentum, before computing gradient
+                    wstep *= self.momentum
                     weights += wstep
-                    wstep,wstep_prev = wstep_prev,wstep  # move wstep into wstep_prev by swapping arrays
-                else:
-                    weights.step_by(wstep,alpha=-self.learn_rate)
 
-                # Apply any model constraints, like norm of weights
+                    # Compute gradient, storing it in wstep
+                    model.grad(batch,out=wgrad)
+                
+                    # Add momentum to the step, then adjust the weights
+                    wgrad *= -self.learn_rate;
+                    weights += wgrad
+                    wstep   += wgrad
+                else:
+                    model.grad(batch,out=wgrad)
+                    weights.step_by(wgrad,alpha=-self.learn_rate)
+
+                # Apply any model constraints, like clipping norm of weights
                 model.apply_constraints()
 
             self.learn_rate *= self.learn_rate_decay
