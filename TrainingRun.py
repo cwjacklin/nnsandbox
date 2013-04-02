@@ -57,7 +57,7 @@ class TrainingRun(object):
                 
                 if self.momentum:
                     # Add momentum to the step, then adjust the weights
-                    wstep *= -self.learn_rate*(1-self.momentum)
+                    wstep *= -self.learn_rate
                     weights += wstep
                     wstep,wstep_prev = wstep_prev,wstep  # move wstep into wstep_prev by swapping arrays
                 else:

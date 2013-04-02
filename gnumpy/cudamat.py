@@ -4,6 +4,63 @@ import numpy as np
 
 MAX_ONES = 1024*256
 
+class CudaDeviceProp(ct.Structure):
+    _fields_ = [
+        ("name",ct.c_char*256),
+        ("totalGlobalMem",ct.c_size_t),
+        ("sharedMemPerBlock",ct.c_size_t),
+        ("regsPerBlock",ct.c_int),
+        ("warpSize",ct.c_int),
+        ("memPitch",ct.c_size_t),
+        ("maxThreadsPerBlock",ct.c_int),
+        ("maxThreadsDim[3]",ct.c_int*3),
+        ("maxGridSize[3]",ct.c_int*3),
+        ("clockRate",ct.c_int),
+        ("totalConstMem",ct.c_size_t),
+        ("major",ct.c_int),
+        ("minor",ct.c_int),
+        ("textureAlignment",ct.c_size_t),
+        ("texturePitchAlignment",ct.c_size_t),
+        ("deviceOverlap",ct.c_int),
+        ("multiProcessorCount",ct.c_int),
+        ("kernelExecTimeoutEnabled",ct.c_int),
+        ("integrated",ct.c_int),
+        ("canMapHostMemory",ct.c_int),
+        ("computeMode",ct.c_int),
+        ("maxTexture1D",ct.c_int),
+        ("maxTexture1DMipmap",ct.c_int),
+        ("maxTexture1DLinear",ct.c_int),
+        ("maxTexture2D[2]",ct.c_int*2),
+        ("maxTexture2DMipmap[2]",ct.c_int*2),
+        ("maxTexture2DLinear[3]",ct.c_int*3),
+        ("maxTexture2DGather[2]",ct.c_int*2),
+        ("maxTexture3D[3]",ct.c_int*3),
+        ("maxTextureCubemap",ct.c_int),
+        ("maxTexture1DLayered[2]",ct.c_int*2),
+        ("maxTexture2DLayered[3]",ct.c_int*3),
+        ("maxTextureCubemapLayered[2]",ct.c_int*2),
+        ("maxSurface1D",ct.c_int),
+        ("maxSurface2D[2]",ct.c_int*2),
+        ("maxSurface3D[3]",ct.c_int*3),
+        ("maxSurface1DLayered[2]",ct.c_int*2),
+        ("maxSurface2DLayered[3]",ct.c_int*3),
+        ("maxSurfaceCubemap",ct.c_int),
+        ("maxSurfaceCubemapLayered[2]",ct.c_int*2),
+        ("surfaceAlignment",ct.c_size_t),
+        ("concurrentKernels",ct.c_int),
+        ("ECCEnabled",ct.c_int),
+        ("pciBusID",ct.c_int),
+        ("pciDeviceID",ct.c_int),
+        ("pciDomainID",ct.c_int),
+        ("tccDriver",ct.c_int),
+        ("asyncEngineCount",ct.c_int),
+        ("unifiedAddressing",ct.c_int),
+        ("memoryClockRate",ct.c_int),
+        ("memoryBusWidth",ct.c_int),
+        ("l2CacheSize",ct.c_int),
+        ("maxThreadsPerMultiProcessor",ct.c_int)]
+
+
 dllext = 'dll' if platform.system() == 'Windows' else 'so'
 dllpath = os.path.join(os.path.dirname(os.path.abspath(__file__)),'libcudamat.%s' % dllext)
 
@@ -15,6 +72,8 @@ _cudamat.cublas_shutdown.restype = ct.c_int
 _cudamat.cuda_set_device.restype = ct.c_int
 _cudamat.cuda_memory_available.restype = ct.c_ulong
 _cudamat.cuda_memory_total.restype = ct.c_ulong
+_cudamat.cuda_get_device_count.restype = ct.c_int
+_cudamat.cuda_get_device_prop.restype = ct.c_int
 _cudamat.init_random.restype = ct.c_int
 
 _cudamat.init_empty.restype = ct.c_int
@@ -34,8 +93,10 @@ _cudamat.fill_with_rand.restype = ct.c_int
 _cudamat.fill_with_randn.restype = ct.c_int
 
 _cudamat.add_col_vec.restype = ct.c_int
+_cudamat.sub_col_vec.restype = ct.c_int
 _cudamat.add_col_mult.restype = ct.c_int
 _cudamat.add_row_vec.restype = ct.c_int
+_cudamat.sub_row_vec.restype = ct.c_int
 _cudamat.mult_by_col_vec.restype = ct.c_int
 _cudamat.mult_by_row_vec.restype = ct.c_int
 _cudamat.mult_by_col_rsqrt.restype = ct.c_int
@@ -413,6 +474,21 @@ class CUDAMatrix(object):
 
         return target
         
+    def subtract_col_vec(self, vec, target = None):
+        """
+        Subtract vector vec to every column of the matrix. If a target is provided,
+        it is used to store the result instead of self.
+        """
+
+        if not target:
+            target = self
+
+        err_code = _cudamat.sub_col_vec(self.p_mat, vec.p_mat, target.p_mat)
+        if err_code:
+            raise generate_exception(err_code)
+
+        return target
+        
     def add_col_mult(self, vec, mult, target = None):
         """
         Add a multiple of vector vec to every column of the matrix. If a target
@@ -438,6 +514,21 @@ class CUDAMatrix(object):
             target = self
 
         err_code = _cudamat.add_row_vec(self.p_mat, vec.p_mat, target.p_mat)
+        if err_code:
+            raise generate_exception(err_code)
+
+        return target
+        
+    def subtract_row_vec(self, vec, target = None):
+        """
+        Subtract vector vec to every row of the matrix. If a target is provided,
+        it is used to store the result instead of self.
+        """
+
+        if not target:
+            target = self
+
+        err_code = _cudamat.sub_row_vec(self.p_mat, vec.p_mat, target.p_mat)
         if err_code:
             raise generate_exception(err_code)
 
@@ -1120,6 +1211,22 @@ def cuda_set_device(dev_id):
     err_code =  _cudamat.cuda_set_device(ct.c_int(dev_id))
     if err_code:
         raise generate_exception(err_code)
+
+def cuda_device_reset():
+    err_code = _cudamat.cuda_device_reset()
+    if err_code:
+        raise generate_exception(err_code)
+
+def cuda_get_device_count():
+    return _cudamat.cuda_get_device_count()
+
+def cuda_get_device_prop(device):
+    prop = CudaDeviceProp()
+    err_code = _cudamat.cuda_get_device_prop(ct.byref(prop),device)
+    if err_code:
+        raise generate_exception(err_code)
+    return prop
+
 
 def cuda_memory_info():
     """

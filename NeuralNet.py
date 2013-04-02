@@ -137,6 +137,7 @@ class DenseWeights(object):
         # Initialize to small random values uniformly centered around 0.0
         n,m = inlayer.size,outlayer.size
         scale = outlayer.init_scale
+        scale *= 1./(n+1)**.1
         
         # Make W and b views into the memory
         if mem != None:
@@ -396,7 +397,7 @@ class NeuralNet(Model):
         '''
         dweights = out or self.make_weights()
 
-        # H[k] and df[k] are assumed to have been previously computed in a call to _forwardprop_pass()
+        # H[k] and df[k] are assumed to have been previously computed in a call to _fprop()
         H  = self._H
         df = self._df
         D  = [None]+ self._get_tmp(self._tmp_D,Y.shape[0])  # D[k] is temporary storage for delta

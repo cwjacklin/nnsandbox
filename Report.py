@@ -71,7 +71,7 @@ def close_logfile():
 
 class TrainingReport(object):
 
-    def __init__(self,trainer,verbose=True,interval=10,interval_rate=1.0,visualize=False,log_mode='none',callback=None):
+    def __init__(self,trainer,verbose=True,interval=10,interval_rate=1.0,visualize=False,log_mode='none',window_size="compact",callback=None):
         self.trainer = weakref.ref(trainer)
         self.verbose = verbose
         self.visualize = visualize
@@ -86,7 +86,7 @@ class TrainingReport(object):
         self._best_validerror = inf
 
         if visualize:
-            self._window = TrainingReportWindow(trainer)
+            self._window = TrainingReportWindow(trainer,window_size)
 
     def __del__(self):
         if self._window:
@@ -286,7 +286,7 @@ class TrainingReportWindow(Tk.Frame):
     '''
     A window that visualizes the current state of training progress.
     '''
-    def __init__(self,trainer):
+    def __init__(self,trainer,window_size):
         Tk.Frame.__init__(self)
         self._unique_id = 0
 
@@ -299,28 +299,33 @@ class TrainingReportWindow(Tk.Frame):
         self.master.columnconfigure(2,weight=1)
         dpi = 80.0
         self.plots = {}
-        #col0_wd = 320
-        #col1_wd = 870
-        #row0_ht = 400
-        #row1_ht = 220
-        col0_wd = 300
-        col1_wd = 300
-        row0_ht = 200
-        row1_ht = 100
+        if window_size == "compact":
+            col0_wd = 300
+            col1_wd = 300
+            row0_ht = 200
+            row1_ht = 100
+        else:
+            col0_wd = 320
+            col1_wd = 770
+            row0_ht = 400
+            row1_ht = 220
 
         # Add error plot in top-left cell
         self.plots["errors"] = TrainingReportErrorPlot(self.master,(col0_wd,row0_ht),dpi,trainer.task())
         self.plots["errors"].canvas.get_tk_widget().grid(row=0,column=0,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
 
+        has_input_feat  = trainer.data.Xshape[0] > 1 and trainer.data.Xshape[1]
+        has_output_feat = trainer.data.Yshape[0] > 1 and trainer.data.Yshape[1]
+
         # Input feature grid in top-right cell
-        if trainer.data.Xshape[0] > 1 and trainer.data.Xshape[1]:
+        if has_input_feat:
             self.plots["feat_in"] = TrainingReportFeatureGrid(self.master,(col1_wd,row0_ht),dpi,trainer.model,trainer.data.Xshape,"input")
-            self.plots["feat_in"].canvas.get_tk_widget().grid(row=0,column=1,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+            self.plots["feat_in"].canvas.get_tk_widget().grid(row=0,column=1,columnspan=(1 if has_output_feat else 2),sticky=Tk.N+Tk.S+Tk.E+Tk.W)
 
         # Output feature grid in top-right-right cell
         if trainer.data.Yshape[0] > 1 and trainer.data.Yshape[1]:
             self.plots["feat_out"] = TrainingReportFeatureGrid(self.master,(col1_wd,row0_ht),dpi,trainer.model,trainer.data.Yshape,"output")
-            self.plots["feat_out"].canvas.get_tk_widget().grid(row=0,column=(2 if self.plots.has_key("feat_in") else 1),sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+            self.plots["feat_out"].canvas.get_tk_widget().grid(row=0,column=(2 if has_input_feat else 1),columnspan=(1 if has_input_feat else 2),sticky=Tk.N+Tk.S+Tk.E+Tk.W)
 
         # *Weight* statistics in bottom-left cell
         weights_ref = weakref.ref(trainer.model.weights)
@@ -334,12 +339,21 @@ class TrainingReportWindow(Tk.Frame):
         hidden_percentiles =  list(100*(1-linspace(0.1,.9,10)**1.5))
         ranges = [layer.f.actual_range() for layer in trainer.model._cfg[1:]]
         self.plots["hstats"] = TrainingReportPercentiles(self.master,(col0_wd,row1_ht),dpi,get_hidden,hidden_percentiles,False,ranges=ranges,title="H")
-        self.plots["hstats"].canvas.get_tk_widget().grid(row=1,column=1,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
 
         # For problems with 2D output, draw the target and the reconstruction side by side
         if trainer.data.Yshape[0] > 1 and trainer.data.Yshape[1]:
-            self.plots["recons"] = TrainingReportReconstructGrid(self.master,(col1_wd,row1_ht),dpi,trainer.data)
-            self.plots["recons"].canvas.get_tk_widget().grid(row=1,column=1,rowspan=2,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+            if trainer.data["test"].size > 0:
+                self.plots["recons_tr"] = TrainingReportReconstructGrid(self.master,(col1_wd,row1_ht),dpi,trainer.data,"train")
+                self.plots["recons_tr"].canvas.get_tk_widget().grid(row=1,column=1,rowspan=2,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+                self.plots["recons_te"] = TrainingReportReconstructGrid(self.master,(col1_wd,row1_ht),dpi,trainer.data,"test")
+                self.plots["recons_te"].canvas.get_tk_widget().grid(row=1,column=2,rowspan=2,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+            else:
+                self.plots["recons_tr"] = TrainingReportReconstructGrid(self.master,(col1_wd,row1_ht),dpi,trainer.data,"train")
+                self.plots["recons_tr"].canvas.get_tk_widget().grid(row=1,column=1,columnspan=2,rowspan=2,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+
+            self.plots["hstats"].canvas.get_tk_widget().grid(row=2,column=0,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+        else:
+            self.plots["hstats"].canvas.get_tk_widget().grid(row=1,column=1,sticky=Tk.N+Tk.S+Tk.E+Tk.W)
 
         self.master.geometry('+%d+%d' % (0,180))
         self.master.title("Training Report")
@@ -366,7 +380,7 @@ class TrainingReportWindow(Tk.Frame):
         self._unique_id += 1
         
         # First save the individual Figure canvases to files
-        pnames = ('errors','feat_in','feat_out','wstats','hstats')
+        pnames = ('errors','feat_in','feat_out','wstats','hstats','recons_tr','recons_te')
         fnames = []
         for pname in pnames:
             if self.plots.has_key(pname):
@@ -568,6 +582,7 @@ class TrainingReportPercentiles(Figure):
                     P /= (Prange[1]-Prange[0])
                 P *= 255
                 P = minimum(P,255)
+                P = maximum(0,P)
                 zoom = 6
                 img = asarray(P,dtype='uint8')
                 img = repeat(img,zoom,axis=0)
@@ -595,13 +610,13 @@ class TrainingReportPercentiles(Figure):
 
 class TrainingReportReconstructGrid(Figure):
 
-    def __init__(self,master,size,dpi,data):
+    def __init__(self,master,size,dpi,data,fold):
         Figure.__init__(self,figsize=(size[0]/dpi,size[1]/dpi),dpi=dpi,facecolor='w',edgecolor='b',frameon=True,linewidth=0)
         FigureCanvas(self,master=master)
         self.master = master
         self._dirty = True
-        self._fold = "test" if data["test"].size > 0 else "train"
-        self._indices = rnd.sample(arange(data[self._fold].size),minimum(data[self._fold].size,50))#256))
+        self._fold = fold
+        self._indices = rnd.sample(arange(data[self._fold].size),minimum(data[self._fold].size,128))#256))
         self._targets = bm.as_numpy(data[self._fold].Y[self._indices,:]).transpose().reshape(data.Yshape + tuple([len(self._indices)]))
         self._outputs = None
         self._outshape = data.Yshape
@@ -628,11 +643,7 @@ class TrainingReportReconstructGrid(Figure):
             x0,y0 = (wd-img.shape[1])/2, (ht-img.shape[0])/2
             self.figimage(img,x0,y0,None,None,cm.gray,zorder=2,vmin=0,vmax=255)
 
-            '''
-            # Print the range of the colormap we're seeing
-            self.text(float(x0)/wd,float(y0-15)/ht,'[%.3f,%.3f]' % self._featrange,zorder=5)
-            self.text(float(x0)/wd,float(y0+img.shape[0]+5)/ht,'%s features' % self._direction,zorder=5)
-            '''
+            self.text(float(x0)/wd,float(y0-15)/ht,self._fold,zorder=5)
             self.canvas.draw()
     
 

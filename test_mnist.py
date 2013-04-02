@@ -34,14 +34,14 @@ def main():
     ######################################################
     # Train the network
     report_args = { 'verbose'   : True,
-                    'interval'  : 10,       # how many epochs between progress reports (larger is faster)
+                    'interval'  : 5,       # how many epochs between progress reports (larger is faster)
                     'visualize' : True}
 
     trainer = TrainingRun(model,data,report_args,
-                          learn_rate=10,
-                          learn_rate_decay=.998,
-                          momentum=[(1,.5),(400,0.99)],
-                          batchsize=128)
+                          learn_rate=5,
+                          learn_rate_decay=.997,
+                          momentum=[(1,.5),(400,0.95)],
+                          batchsize=64)
 
     tic()
     trainer.train(3000)

@@ -24,8 +24,9 @@ inline bool check_cublas_error() {
     return status != CUBLAS_STATUS_SUCCESS;
 }
 
-inline bool checkCUDAError() {
-    cudaError_t err = cudaGetLastError();
+inline bool checkCUDAError(cudaError_t err = cudaSuccess) {
+	if (err != cudaSuccess)
+		err = cudaGetLastError();
 
     if (cudaSuccess != err)
         printf("%s\n", cudaGetErrorString( err));
@@ -54,14 +55,28 @@ DLLEXP extern int cublas_shutdown() {
         return 0;
 }
 
+DLLEXP extern void cuda_device_reset() {
+    checkCUDAError(cudaDeviceReset());
+}
 
+DLLEXP extern int cuda_get_device_count()
+{
+	int count = 0;
+	cudaGetDeviceCount(&count);
+	return count;
+}
+
+DLLEXP extern int cuda_get_device_prop(cudaDeviceProp* prop, int device)
+{
+	cudaError_t error = cudaGetDeviceProperties(prop,device);
+	return error ? CUDA_ERROR : 0;
+}
+
+DLLEXP extern size_t cuda_memory_available();
+DLLEXP extern size_t cuda_memory_total();
 DLLEXP extern int cuda_set_device(int deviceId) {
-    cudaSetDevice(deviceId);
-    
-    if (checkCUDAError())
-        return CUDA_ERROR;
-    else
-        return 0;
+    cudaError_t error = cudaSetDevice(deviceId);
+    return error? CUDA_ERROR : 0;
 }
 
 DLLEXP extern size_t cuda_memory_available()
@@ -433,6 +448,31 @@ DLLEXP extern int add_col_vec(cudamat* mat, cudamat* vec, cudamat* target) {
     return 0;
 }
 
+DLLEXP extern int sub_col_vec(cudamat* mat, cudamat* vec, cudamat* target) {
+    unsigned int h = mat->size[0],
+                 w = mat->size[1];
+
+    if (!mat->on_device || !vec->on_device)
+        return ERROR_NOT_ON_DEVICE;
+
+    if (mat->is_trans)
+        return ERROR_TRANSPOSED;
+
+    if (mat->size[0] != vec->size[0] || vec->size[1] != 1 ||
+        mat->size[0] != target->size[0] || mat->size[1] != target->size[1])
+        return ERROR_INCOMPATIBLE_DIMENSIONS;
+
+    kSubColVector<<<NUM_VECTOR_OP_BLOCKS,NUM_VECTOR_OP_THREADS_PER_BLOCK>>>(mat->data_device, vec->data_device, target->data_device, w, h);
+
+    CUDA_THREAD_SYNC();
+
+    if (checkCUDAError()) {
+        return CUDA_ERROR;
+    }
+
+    return 0;
+}
+
 DLLEXP extern int add_col_mult(cudamat* mat, cudamat* vec, cudamat* target, float mult) {
     unsigned int h = mat->size[0],
                  w = mat->size[1];
@@ -472,6 +512,30 @@ DLLEXP extern int add_row_vec(cudamat* mat, cudamat* vec, cudamat* target) {
         return ERROR_INCOMPATIBLE_DIMENSIONS;
 
     kAddRowVector<<<NUM_VECTOR_OP_BLOCKS,NUM_VECTOR_OP_THREADS_PER_BLOCK>>>(mat->data_device, vec->data_device, target->data_device, w, h);
+
+    CUDA_THREAD_SYNC();
+
+    if (checkCUDAError())
+        return CUDA_ERROR;
+
+    return 0;
+}
+
+DLLEXP extern int sub_row_vec(cudamat* mat, cudamat* vec, cudamat* target) {
+    unsigned int h = mat->size[0],
+                 w = mat->size[1];
+
+    if (!mat->on_device || !vec->on_device)
+        return ERROR_NOT_ON_DEVICE;
+
+    if (mat->is_trans)
+        return ERROR_TRANSPOSED;
+
+    if (mat->size[1] != vec->size[1] || vec->size[0] != 1 ||
+        mat->size[0] != target->size[0] || mat->size[1] != target->size[1])
+        return ERROR_INCOMPATIBLE_DIMENSIONS;
+
+    kSubRowVector<<<NUM_VECTOR_OP_BLOCKS,NUM_VECTOR_OP_THREADS_PER_BLOCK>>>(mat->data_device, vec->data_device, target->data_device, w, h);
 
     CUDA_THREAD_SYNC();
 

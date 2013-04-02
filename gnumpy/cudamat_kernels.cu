@@ -346,6 +346,17 @@ __global__ void kAddColVector(float* mat, float* vec, float* tgtMat, unsigned in
     }
 }
 
+__global__ void kSubColVector(float* mat, float* vec, float* tgtMat, unsigned int width,
+                              unsigned int height) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < width * height; i += numThreads) {
+        tgtMat[i] = mat[i] - vec[i % height];
+    }
+}
+
 __global__ void kAddRowVector(float* mat, float* vec, float* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
@@ -353,6 +364,16 @@ __global__ void kAddRowVector(float* mat, float* vec, float* tgtMat, unsigned in
     #pragma unroll
     for (unsigned int i = idx; i < width * height; i += numThreads) {
         tgtMat[i] = mat[i] + vec[i / height];
+    }
+}
+
+__global__ void kSubRowVector(float* mat, float* vec, float* tgtMat, unsigned int width, unsigned int height) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < width * height; i += numThreads) {
+        tgtMat[i] = mat[i] - vec[i / height];
     }
 }
 

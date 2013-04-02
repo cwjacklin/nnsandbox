@@ -314,9 +314,14 @@ class GnumpyBackend(object):
     def subtract(A,B,out):
         if out == None:
             out = gp.empty(A.shape)
-        if np.isscalar(B):         A._base_shaped(1).subtract(B,target=out._base_shaped(1))
-        elif A.shape == B.shape:   A._base_shaped(1).subtract(B._base_shaped(1),target=out._base_shaped(1))
-        else: raise NotImplementedError("broadcasted subtraction not implemented by cudamat")
+        if np.isscalar(B):
+            A._base_shaped(1).subtract(B,target=out._base_shaped(1))
+        elif (B.ndim == 1 or B.shape[0] == 1) and B.size == A.shape[1]:
+            A._base_shaped(1).subtract_col_vec(B._base_shaped(1),target=out._base_shaped(1))
+        elif (B.ndim == 1 or B.shape[1] == 1) and B.size == A.shape[0]:
+            A._base_shaped(1).subtract_row_vec(B._base_shaped(1),target=out._base_shaped(1))
+        else:
+            A._base_shaped(1).subtract(B._base_shaped(1),target=out._base_shaped(1))
         return out
 
     @staticmethod
@@ -458,7 +463,7 @@ def dropout(A,B,rate,outA=None,outB=None): return backend.dropout(A,B,rate,outA,
 
 ###################################################
 
-def set_backend(name,dtype='float32'):
+def set_backend(name,dtype='float32',device=None):
     global backend
     global default_dtype
     global _gnumpy_loaded
@@ -469,6 +474,12 @@ def set_backend(name,dtype='float32'):
             return
         backend = GnumpyBackend
         default_dtype = 'float32'
+        if device == None:
+            device = 0
+        cudamat.cuda_set_device(device)
+        prop = cudamat.cuda_get_device_prop(device)
+        print "Using device \"%s\"" % prop.name
+
     elif name == 'numpy':
         backend = NumpyBackend
         default_dtype = dtype

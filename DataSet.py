@@ -63,9 +63,10 @@ class DataSet(object):
         if shuffle:
             perm = random.permutation(X.shape[0])
             X[:] = X[perm]
-            Y[:] = Y[perm]
+            if not (X is Y):
+                Y[:] = Y[perm]
         self._X = bm.asarray(X)
-        self._Y = bm.asarray(Y)
+        self._Y = bm.asarray(Y) if not (X is Y) else self._X
         self._size  = X.shape[0]
         self.max_batchsize = max_batchsize
         self.Xshape = Xshape or (1,X.shape[1])
@@ -74,6 +75,10 @@ class DataSet(object):
         self.Ydim   = Y.shape[1]
         self.Xrange = Xrange or (X.min(axis=0),X.max(axis=0))
         self.Yrange = Yrange or (Y.min(axis=0),Y.max(axis=0))
+        if not isscalar(self.Xrange[0]):
+            self.Xrange = (bm.asarray(self.Xrange[0]).reshape((1,-1)),bm.asarray(self.Xrange[1]).reshape((1,-1)))
+        if not isscalar(self.Yrange[0]):
+            self.Yrange = (bm.asarray(self.Yrange[0]).reshape((1,-1)),bm.asarray(self.Yrange[1]).reshape((1,-1)))
         rs = self._rowslice(0,self._size)
         self.train = DataFold(X[rs,:],Y[rs,:])
         self.valid = DataFold(X[0:0,:],Y[0:0,:])
@@ -120,15 +125,33 @@ class DataSet(object):
         '''
         if Xrange != self.Xrange:
             for fold in self.values():
-                fold.X -= self.Xrange[0]
-                fold.X *= (Xrange[1]-Xrange[0])/maximum(1e-5,self.Xrange[1]-self.Xrange[0])
-                fold.X += Xrange[0]
+                if fold.X.shape[0] == 0:
+                    continue
+                Xscale = self.Xrange[1]-self.Xrange[0]
+                if isscalar(Xscale):
+                    Xscale = (Xrange[1]-Xrange[0]) / maximum(1e-5,Xscale)
+                else:
+                    bm.maximum(Xscale,1e-5,out=Xscale)
+                    bm.reciprocal(Xscale,out=Xscale)
+                    bm.multiply(Xscale,Xrange[1]-Xrange[0],out=Xscale)
+                bm.isub(fold.X,self.Xrange[0])
+                bm.imul(fold.X,Xscale)
+                bm.iadd(fold.X,Xrange[0])
             self.Xrange = Xrange
         if Yrange != self.Yrange:
             for fold in self.values():
-                fold.Y -= self.Yrange[0]
-                fold.Y *= (Yrange[1]-Yrange[0])/maximum(1e-5,self.Yrange[1]-self.Yrange[0])
-                fold.Y += Yrange[0]
+                if fold.Y.shape[0] == 0 or (self._X is self._Y):
+                    continue
+                Yscale = self.Yrange[1]-self.Yrange[0]
+                if isscalar(Yscale):
+                    Yscale = (Yrange[1]-Yrange[0]) / maximum(1e-5,Yscale)
+                else:
+                    bm.maximum(Yscale,1e-5,out=Yscale)
+                    bm.reciprocal(Yscale,out=Yscale)
+                    bm.multiply(Yscale,Yrange[1]-Yrange[0],out=Yscale)
+                bm.isub(fold.Y,self.Yrange[0])
+                bm.imul(fold.Y,Yscale)
+                bm.iadd(fold.Y,Yrange[0])
             self.Yrange = Yrange
 
 ################################################
