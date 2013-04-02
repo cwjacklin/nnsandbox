@@ -41,7 +41,9 @@ __global__ void kMaximumScalar(float* mat, float val, float* target, unsigned in
 __global__ void kMaxColumnwise(float* mat, float* target, unsigned int width, unsigned int height);
 __global__ void kSign(float* mat, float* target, unsigned int len);
 __global__ void kApplySigmoid(float* mat, float* target, unsigned int len);
+__global__ void kApplySigmoidDeriv(float* mat, float* target, unsigned int len);
 __global__ void kApplyTanh(float* mat, float* target, unsigned int len);
+__global__ void kApplyTanhDeriv(float* mat, float* target, unsigned int len);
 __global__ void kApplyAbs(float* mat, float* target, unsigned int len);
 __global__ void kApplyLog1PlusExp(float* mat, float* target, unsigned int len);
 __global__ void kLog(float* mat, float* target, unsigned int len);

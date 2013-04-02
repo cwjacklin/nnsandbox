@@ -227,6 +227,15 @@ __global__ void kApplySigmoid(float* mat, float* target, unsigned int len) {
     }
 }
 
+__global__ void kApplySigmoidDeriv(float* mat, float* target, unsigned int len) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < len; i += numThreads) {
+        target[i] = mat[i]*(1-mat[i]);
+    }
+}
 
 __global__ void kApplyTanh(float* mat, float* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -238,6 +247,17 @@ __global__ void kApplyTanh(float* mat, float* target, unsigned int len) {
         mat_i = mat[i];
         exp2x = __expf(2 * mat_i);
         target[i] = 1 - 2 / (exp2x + 1);
+    }
+}
+
+__global__ void kApplyTanhDeriv(float* mat, float* target, unsigned int len) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+    float mat_i, exp2x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < len; i += numThreads) {
+        target[i] = 1-mat[i]*mat[i];
     }
 }
 

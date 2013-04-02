@@ -13,7 +13,7 @@ def main():
     tic()
     data = load_mnist(digits=range(10),
                       split=[85,0,15],
-                      #split=[30,0,0]   # for faster training when debugging
+                      #split=[85,0,0]   # for faster training when debugging
                       )
     print ("Data loaded in %.1fs" % toc())
 

@@ -819,6 +819,25 @@ DLLEXP extern int apply_sigmoid(cudamat* mat, cudamat* target) {
     return 0;
 }
 
+DLLEXP extern int apply_sigmoid_deriv(cudamat* mat, cudamat* target) {
+    unsigned int len = mat->size[0] * mat->size[1];
+
+    if (!mat->on_device || !target->on_device)
+        return ERROR_NOT_ON_DEVICE;
+
+    if (mat->size[0] != target->size[0] || mat->size[1] != target->size[1])
+        return ERROR_INCOMPATIBLE_DIMENSIONS;
+
+    kApplySigmoidDeriv<<<NUM_VECTOR_OP_BLOCKS,NUM_VECTOR_OP_THREADS_PER_BLOCK>>>(mat->data_device, target->data_device, len);
+
+    CUDA_THREAD_SYNC();
+
+    if (checkCUDAError())
+        return CUDA_ERROR;
+
+    return 0;
+}
+
 DLLEXP extern int apply_tanh(cudamat* mat, cudamat* target) {
     unsigned int len = mat->size[0] * mat->size[1];
 
@@ -829,6 +848,25 @@ DLLEXP extern int apply_tanh(cudamat* mat, cudamat* target) {
         return ERROR_INCOMPATIBLE_DIMENSIONS;
 
     kApplyTanh<<<NUM_VECTOR_OP_BLOCKS,NUM_VECTOR_OP_THREADS_PER_BLOCK>>>(mat->data_device, target->data_device, len);
+
+    CUDA_THREAD_SYNC();
+
+    if (checkCUDAError())
+        return CUDA_ERROR;
+
+    return 0;
+}
+
+DLLEXP extern int apply_tanh_deriv(cudamat* mat, cudamat* target) {
+    unsigned int len = mat->size[0] * mat->size[1];
+
+    if (!mat->on_device || !target->on_device)
+        return ERROR_NOT_ON_DEVICE;
+
+    if (mat->size[0] != target->size[0] || mat->size[1] != target->size[1])
+        return ERROR_INCOMPATIBLE_DIMENSIONS;
+
+    kApplyTanhDeriv<<<NUM_VECTOR_OP_BLOCKS,NUM_VECTOR_OP_THREADS_PER_BLOCK>>>(mat->data_device, target->data_device, len);
 
     CUDA_THREAD_SYNC();
 

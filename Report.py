@@ -496,7 +496,7 @@ class TrainingReportFeatureGrid(Figure):
             W = bm.as_numpy(W).copy().transpose()
             W = W.reshape(self._featshape + tuple([-1]))
         self._feat  = W # col[i] contains weights entering unit i in first hidden layer
-        self._featrange = (min(W.ravel()),max(W.ravel()))
+        self._featrange = (W.ravel().min(),W.ravel().max())
         self._dirty = True
         if event == 'epoch' and self._sorted and (stats['epoch'] < 5):
             # Sort by decreasing L2 norm
@@ -515,7 +515,7 @@ class TrainingReportFeatureGrid(Figure):
             # Convert list of features into a grid of images, fitting the current drawing canvas
             wd,ht = self.canvas.get_width_height()
             zoom = max(1,16//max(feat.shape[0:2]))
-            absmax = max(abs(feat.ravel()))
+            absmax = abs(feat.ravel()).max()
             img = _feat2grid(feat,zoom,1.0,[wd-2,ht-30],vminmax=(-absmax,absmax))
 
             # Draw the image centered
@@ -710,7 +710,7 @@ def _feat2img(feat,zoom,gamma,vminmax=None):
     into a list of NxM images.
     '''
     if vminmax == None:
-        vrange = (min(feat.ravel()),max(feat.ravel()))
+        vrange = (feat.ravel().min(),feat.ravel().max())
     ht,wd,n = feat.shape # n = number of features
     img = []
     for i in range(n):

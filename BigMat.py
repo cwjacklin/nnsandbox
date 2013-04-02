@@ -102,6 +102,17 @@ class NumpyBackend(object):
     def sign(A,out):     return np.sign(A,out=out)
 
     @staticmethod
+    def logistic_deriv(A,out): return np.subtract(A,np.square(A),out=out)
+
+    @staticmethod
+    def tanh_deriv(A,out): 
+        if out == None: 
+            out = empty(A.shape())
+        np.square(A,out=out)
+        np.subtract(1,out,out=out)
+        return out
+
+    @staticmethod
     def sum(A,axis,out): return np.sum(A,axis=axis,out=out.ravel() if out != None else None)
 
     @staticmethod
@@ -262,6 +273,12 @@ class GnumpyBackend(object):
 
     @staticmethod
     def sign(A,out):     return GnumpyBackend._unary(cudamat.CUDAMatrix.sign,A,out)
+
+    @staticmethod
+    def logistic_deriv(A,out): return GnumpyBackend._unary(cudamat.sigmoid_deriv,A,out)
+
+    @staticmethod
+    def tanh_deriv(A,out): return GnumpyBackend._unary(cudamat.tanh_deriv,A,out)
 
     @staticmethod
     def sum(A,axis,out):
@@ -445,6 +462,8 @@ def exp(A,out=None):       return backend.exp(A,out)      if not np.isscalar(A) 
 def log(A,out=None):       return backend.log(A,out)      if not np.isscalar(A) else np.log(A)
 def abs(A,out=None):       return backend.abs(A,out)      if not np.isscalar(A) else np.abs(A)
 def sign(A,out=None):      return backend.sign(A,out)     if not np.isscalar(A) else np.sign(A)
+def logistic_deriv(A,out=None): return backend.logistic_deriv(A,out) if not np.isscalar(A) else A*(1-A)
+def tanh_deriv(A,out=None): return backend.tanh_deriv(A,out) if not np.isscalar(A) else 1-A**2
 def sum(A,axis=0,out=None):return __builtins__['sum'](A) if isinstance(A,list) else backend.sum(A,axis,out)
 def mean(A,axis=0,out=None):return backend.mean(A,axis,out)
 def add(A,B,out=None):     return backend.add(A,B,out)       # A + B

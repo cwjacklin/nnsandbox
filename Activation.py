@@ -36,14 +36,11 @@ class ActivationLogistic(Activation):
     def ideal_range(self):  return [ 0.1,0.9]
     def actual_range(self): return [ 0.0,1.0]
 
-    def __call__(self,A,out=None,dout=None):
-        if out == None:
-            return 1./(1+expx(-A))
-        logistic(A,out=out)
-        if dout != None:
-            square(out,out=dout)
-            imul(dout,-1)
-            iadd(dout,out)
+    def apply(self,A):
+        logistic(A,out=A)
+
+    def apply_deriv(self,fA):
+        logistic_deriv(fA,out=fA)
 
 
 class ActivationTanh(Activation):
@@ -53,14 +50,11 @@ class ActivationTanh(Activation):
     def ideal_range(self):  return [-0.9,0.9]
     def actual_range(self): return [-1.0,1.0]
 
-    def __call__(self,A,out=None,dout=None):
-        if out == None:
-            return tanh(A)
-        tanh(A,out=out)
-        if dout != None:
-            square(out,out=dout)
-            imul(dout,-1)
-            iadd(dout,1)
+    def apply(self,A):
+        tanh(A,out=A)
+
+    def apply_deriv(self,fA):
+        tanh_deriv(fA,out=fA)
 
 
 class ActivationRelu(Activation):
@@ -70,12 +64,11 @@ class ActivationRelu(Activation):
     def ideal_range(self):  return [ 0.0,1.0]
     def actual_range(self): return [ 0.0,inf]
 
-    def __call__(self,A,out=None,dout=None):
-        if out == None:
-            return maximum(0,A)
-        maximum(0,A,out=out)
-        if dout != None:
-            sign(out,out=dout)
+    def apply(self,A):
+        maximum(0,A,out=A)
+
+    def apply_deriv(self,fA):
+        sign(fA,out=fA)
 
 
 class ActivationSoftmax(Activation):
@@ -89,21 +82,18 @@ class ActivationSoftmax(Activation):
     def actual_range(self): return [0.0,1.0]
     def ideal_loss(self):   return 'nll'
 
-    def __call__(self,A,out=None,dout=None):
+    def apply(self,A):
         # First pre-allocate enough memory to accumulate denominator of each sample
         denom = self._tmp_denom.get_capacity(A.shape[0],1)
 
         # Then compute softmax
-        if out == None:
-            expA = exp(A)
-            sum(expA,axis=1,out=denom)
-            return (1./denom) * expA
-        exp(A,out=out)
-        sum(out,axis=1,out=denom)
+        exp(A,out=A)
+        sum(A,axis=1,out=denom)
         reciprocal(denom,out=denom)
-        multiply(out,denom,out=out)
-        if dout != None:
-            pass # for Softmax+NLL, 'df' is not used to compute Cost.dloss, so don't bother setting the dout in that case
+        multiply(A,denom,out=A)
+
+    def apply_deriv(self,fA):
+        pass
 
 
 ##########################################################

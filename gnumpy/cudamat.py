@@ -110,7 +110,9 @@ _cudamat.maximum_scalar.restype = ct.c_int
 _cudamat.max_by_axis.restype = ct.c_int
 _cudamat.sign.restype = ct.c_int
 _cudamat.apply_sigmoid.restype = ct.c_int
+_cudamat.apply_sigmoid_deriv.restype = ct.c_int
 _cudamat.apply_tanh.restype = ct.c_int
+_cudamat.apply_tanh_deriv.restype = ct.c_int
 _cudamat.apply_abs.restype = ct.c_int
 _cudamat.apply_log_1_plus_exp.restype = ct.c_int
 _cudamat.apply_log.restype = ct.c_int
@@ -1056,6 +1058,35 @@ def tanh(mat, target = None):
         target = mat
 
     err_code = _cudamat.apply_tanh(mat.p_mat, target.p_mat)
+    if err_code:
+        raise generate_exception(err_code)
+
+    return target
+
+
+def sigmoid_deriv(mat, target = None):
+    """
+    Apply sigmoid'(x) to each element of the matrix mat, assuming mat contains sigmoid(x)
+    """
+
+    if not target:
+        target = mat
+
+    err_code = _cudamat.apply_sigmoid_deriv(mat.p_mat, target.p_mat)
+    if err_code:
+        raise generate_exception(err_code)
+
+    return target
+
+def tanh_deriv(mat, target = None):
+    """
+    Apply tanh'(x) to each element of the matrix mat, assuming mat contains tanh(x)
+    """
+
+    if not target:
+        target = mat
+
+    err_code = _cudamat.apply_tanh_deriv(mat.p_mat, target.p_mat)
     if err_code:
         raise generate_exception(err_code)
 
