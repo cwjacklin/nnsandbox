@@ -11,10 +11,10 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="cudamat.cu">
+    <CudaCompile Include="cudamat_kernels.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
-    <CudaCompile Include="cudamat_kernels.cu">
+    <CudaCompile Include="cudamat.cu">
       <Filter>Source Files</Filter>
     </CudaCompile>
   </ItemGroup>
@@ -25,5 +25,7 @@
     <None Include="cudamat.cuh">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="cudamat.py" />
+    <None Include="gnumpy.py" />
   </ItemGroup>
 </Project>

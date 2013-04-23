@@ -1,29 +1,45 @@
 from numpy import *
 import BigMat as bm
 import cPickle as cp
+import zlib
+from Util import *
 from time import time as now
 
 class BatchSet(object):
-    def __init__(self,X,Y,batchsize):
+    def __init__(self,X,Y,S,batchsize):
         self._size = m = X.shape[0]
         self._X = X
         self._Y = Y
+        self._S = S
         self._index = 0
+        self._Xbuf = None
         self._batchsize = batchsize
         self._blocksize = batchsize * max(1,2048//batchsize)
-        self._batches = vstack([arange(0        ,m          ,batchsize),
-                                arange(batchsize,m+batchsize,batchsize)]).transpose()
-        self._batches[-1,-1] = m
+        self._batches_all = vstack([arange(0        ,m          ,batchsize),
+                                    arange(batchsize,m+batchsize,batchsize)]).transpose()
+        self._batches_all[-1,-1] = m
+        self._batches = self._batches_all.copy()
 
     def __iter__(self):
         self._index = 0
         return self
 
+    def resize(self,newsize):
+        self._batches = self._batches_all[:newsize,:].copy()
+
     def next(self):
         if self._index >= len(self._batches):
             raise StopIteration
         s = slice(*(self._batches[self._index]))
-        batch = DataFold(self._X[s,:],self._Y[s,:])
+        Xbuf = self._X[s,:]
+        if Xbuf.dtype == 'uint8':
+            if self._Xbuf == None:
+                self._Xbuf = bm.empty((self._batchsize,self._X.shape[1]))
+            self._Xbuf[:s.stop-s.start,:] = Xbuf  # copy
+            Xbuf = self._Xbuf[:s.stop-s.start,:]  # point to copy
+            bm.imul(Xbuf,1./255)
+
+        batch = DataFold(Xbuf,self._Y[s,:],self._S[s,:] if self._S != None else None)
         self._index += 1
         return batch
 
@@ -38,20 +54,18 @@ class DataFold(object):
     A simple structure containing a subset of inputs X,
     and the corresponding target outputs Y
     '''
-    def __init__(self,X,Y):
+    def __init__(self,X,Y,S=None):
         assert(X.shape[0] == Y.shape[0])
         self.X = X
         self.Y = Y
+        self.S = S
         self.size = X.shape[0]
 
     def __iter__(self):
         return [self.X,self.Y].__iter__()   # let X,Y = data unpack
 
-    def __getitem__(self,i):
-        return DataFold(self.X[i,:],self.Y[i,:])
-
     def make_batches(self,batchsize):
-        return BatchSet(self.X,self.Y,batchsize)
+        return BatchSet(self.X,self.Y,self.S,min(self.X.shape[0],batchsize))
 
 
 class DataSet(object):
@@ -62,12 +76,15 @@ class DataSet(object):
     def __init__(self,X,Y,Xshape=None,Yshape=None,Xrange=None,Yrange=None,shuffle=True,max_batchsize=1):
         if shuffle:
             perm = random.permutation(X.shape[0])
-            X[:] = X[perm]
+            X = take(X,perm,axis=0)
             if not (X is Y):
-                Y[:] = Y[perm]
+                Y = take(Y,perm,axis=0)
+        t0 = now()
         self._X = bm.asarray(X)
         self._Y = bm.asarray(Y) if not (X is Y) else self._X
+        print "Host->Device transfer of dataset took %.3fs" % (now()-t0)
         self._size  = X.shape[0]
+        self._Xrescale = (1.,0.) #scale,bias
         self.max_batchsize = max_batchsize
         self.Xshape = Xshape or (1,X.shape[1])
         self.Yshape = Yshape or (1,Y.shape[1])
@@ -80,9 +97,9 @@ class DataSet(object):
         if not isscalar(self.Yrange[0]):
             self.Yrange = (bm.asarray(self.Yrange[0]).reshape((1,-1)),bm.asarray(self.Yrange[1]).reshape((1,-1)))
         rs = self._rowslice(0,self._size)
-        self.train = DataFold(X[rs,:],Y[rs,:])
-        self.valid = DataFold(X[0:0,:],Y[0:0,:])
-        self.test  = DataFold(X[0:0,:],Y[0:0,:])
+        self.train = DataFold(self._X[rs,:],self._Y[rs,:])
+        self.valid = DataFold(self._X[0:0,:],self._Y[0:0,:])
+        self.test  = DataFold(self._X[0:0,:],self._Y[0:0,:])
 
     def keys(self):   return ['train','valid','test']
     def values(self): return [self.train,self.valid,self.test]
@@ -123,77 +140,55 @@ class DataSet(object):
         and all targets Y lie within (Yrange[0],Yrange[1]).
         The same scaling factor is applied to all folds.
         '''
-        if Xrange != self.Xrange:
-            for fold in self.values():
-                if fold.X.shape[0] == 0:
-                    continue
-                Xscale = self.Xrange[1]-self.Xrange[0]
-                if isscalar(Xscale):
-                    Xscale = (Xrange[1]-Xrange[0]) / maximum(1e-5,Xscale)
-                else:
-                    bm.maximum(Xscale,1e-5,out=Xscale)
-                    bm.reciprocal(Xscale,out=Xscale)
-                    bm.multiply(Xscale,Xrange[1]-Xrange[0],out=Xscale)
-                bm.isub(fold.X,self.Xrange[0])
-                bm.imul(fold.X,Xscale)
-                bm.iadd(fold.X,Xrange[0])
-            self.Xrange = Xrange
-        if Yrange != self.Yrange:
-            for fold in self.values():
-                if fold.Y.shape[0] == 0 or (self._X is self._Y):
-                    continue
-                Yscale = self.Yrange[1]-self.Yrange[0]
-                if isscalar(Yscale):
-                    Yscale = (Yrange[1]-Yrange[0]) / maximum(1e-5,Yscale)
-                else:
-                    bm.maximum(Yscale,1e-5,out=Yscale)
-                    bm.reciprocal(Yscale,out=Yscale)
-                    bm.multiply(Yscale,Yrange[1]-Yrange[0],out=Yscale)
-                bm.isub(fold.Y,self.Yrange[0])
-                bm.imul(fold.Y,Yscale)
-                bm.iadd(fold.Y,Yrange[0])
-            self.Yrange = Yrange
+        if Xrange != self.Xrange and self._X.dtype != 'uint8':
+            Xscale = self.Xrange[1]-self.Xrange[0]
+            if isscalar(Xscale):
+                Xscale = (Xrange[1]-Xrange[0]) / maximum(1e-5,Xscale)
+            else:
+                bm.maximum(Xscale,1e-5,out=Xscale)
+                bm.reciprocal(Xscale,out=Xscale)
+                bm.multiply(Xscale,Xrange[1]-Xrange[0],out=Xscale)
+
+            bm.isub(self._X,self.Xrange[0])
+            bm.imul(self._X,Xscale)
+            bm.iadd(self._X,Xrange[0])
+
+        if Yrange != self.Yrange and not (self._X is self._Y):
+            Yscale = self.Yrange[1]-self.Yrange[0]
+            if isscalar(Yscale):
+                Yscale = (Yrange[1]-Yrange[0]) / maximum(1e-5,Yscale)
+            else:
+                bm.maximum(Yscale,1e-5,out=Yscale)
+                bm.reciprocal(Yscale,out=Yscale)
+                bm.multiply(Yscale,Yrange[1]-Yrange[0],out=Yscale)
+            bm.isub(self._Y,self.Yrange[0])
+            bm.imul(self._Y,Yscale)
+            bm.iadd(self._Y,Yrange[0])
+
+        self.Xrange = Xrange
+        self.Yrange = Yrange
 
 ################################################
 
-def pickle(filename,object):
-    f = open(filename,'wb')
-    cp.dump(object,f,-1)
-    f.close()
-
-def unpickle(filename):
-    f = open(filename,'rb')
-    object = cp.load(f)
-    f.close()
-    return object
-
-def load_mnist(digits=range(10),split=[50,15,35],xform=[]):
+def load_mnist(digits=range(10),split=[50,15,35]):
     X,Y = [],[]
     for d in digits:
         for set in ('train','test'):
             # Load all N instances of digit 'd' as a Nx768 row vector of inputs, 
             # and an Nx10 target vector. 
-            Xd,Yd = unpickle("data/mnist/mnist_%s_%i.pkl" % (set,d))
+            Xd,Yd = quickload("data/mnist/mnist_%s_%i.pkl" % (set,d))
+            Xd = zlib.decompress(Xd) # decompress byte string 
+            Yd = zlib.decompress(Yd) # decompress byte string 
+            n = len(Xd)/(28*28)
+            Xd = ndarray(shape=(n,28*28),buffer=Xd,dtype='uint8') # convert back to numpy array
+            Yd = ndarray(shape=(n,10)   ,buffer=Yd,dtype='uint8') # convert back to numpy array
             X.append(Xd)
-            Y.append(Yd[:,digits])  # make the output dimensionality match the number of actual targets, for faster training on subsets of digits
-
-            # Apply transformations to the digitis
-            for f in xform:
-                Ximg = Xd.reshape((-1,28,28)).copy()
-                if   f[0] > 0: Ximg[:,:,f[0]:] = Ximg[:,:,:-f[0]]; Ximg[:,:,:f[0]] = 0
-                elif f[0] < 0: Ximg[:,:,:f[0]] = Ximg[:,:,-f[0]:]; Ximg[:,:,f[0]:] = 0
-                if   f[1] > 0: Ximg[:,f[1]:,:] = Ximg[:,:-f[1],:]; Ximg[:,:f[1],:] = 0
-                elif f[1] < 0: Ximg[:,:f[1],:] = Ximg[:,-f[1]:,:]; Ximg[:,f[1]:,:] = 0
-                X.append(Ximg.reshape((-1,28*28)))
-                Y.append(Yd[:,digits])
-
-
-
+            Y.append(asarray(Yd[:,digits],dtype='float32'))  # make the output dimensionality match the number of actual targets, for faster training on subsets of digits
 
     X = vstack(X)
     Y = vstack(Y)
-    
-    data = DataSet(X,Y,Xshape=(28,28),Xrange=[0.0,255.0],Yrange=[0.0,1.0],shuffle=True)
+
+    data = DataSet(X,Y,Xshape=(28,28,1),Xrange=[0.0,255.0],Yrange=[0.0,1.0],shuffle=True)
     data.split(*split)
     return data
     

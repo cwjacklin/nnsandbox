@@ -76,6 +76,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <TargetName>libcudamat</TargetName>
+    <OutDir>$(SolutionDir)</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -147,11 +148,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <CudaCompile Include="cudamat.cu" />
-    <CudaCompile Include="cudamat_kernels.cu" />
+    <CudaCompile Include="cudamat_kernels.cu">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </CudaCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="cudamat.cuh" />
+    <None Include="cudamat.py" />
     <None Include="cudamat_kernels.cuh" />
+    <None Include="gnumpy.py" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

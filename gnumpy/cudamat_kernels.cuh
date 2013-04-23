@@ -18,12 +18,12 @@
 #define NUM_RND_BURNIN                      100
 
 #define COPY_BLOCK_SIZE                     16
-#
+
 #define NUM_VECTOR_OP_BLOCKS                4096
 #define NUM_VECTOR_OP_THREADS_PER_BLOCK     512
 
 #define PI 3.1415926535897932f
-
+/*
 __global__ void kSeedRandom(unsigned int* randMults, unsigned long long* randWords, unsigned int seed);
 __global__ void kRandomUniform(unsigned int* randMults, unsigned long long* randWords, float* gData, unsigned int numElements);
 __global__ void kRandomGaussian(unsigned int* rndMults, unsigned long long* rndWords, float* gData, unsigned int numElements);
@@ -63,6 +63,7 @@ __global__ void kMultByRowVector(float* mat, float* vec, float* tgtMat, unsigned
 __global__ void kMultByColRecipSqrt(float* mat, float* vec, float eps, float* tgtMat, unsigned int width, unsigned int height);
 __global__ void kAdd(float* a, float* b, float* dest, unsigned int numEls);
 __global__ void kSubtract(float* a, float* b, float* dest, unsigned int numEls);
+__global__ void kSubtractTrans(float* a, float* b, float* dest, unsigned int width, unsigned int height);
 __global__ void kMult(float* a, float* b, float* dest, unsigned int numEls);
 __global__ void kDivide(float* a, float* b, float* dest, unsigned int numEls);
 __global__ void kMultScalar(float* mat, float alpha, float* dest, unsigned int len);
@@ -72,4 +73,5 @@ __global__ void kAddScalar(float* a, float alpha, float* dest, unsigned int numE
 __global__ void kSelectRows(float* source, float* target, float* indices, int nRowIs, int nCols, int nSourceRows);
 __global__ void kSetSelectedRows(float* target, float* source, float* indices, int nRowIs, int nCols, int nTargetRows);
 __global__ void kDropout(unsigned int* randMults, unsigned long long* randWords, float* matA, float* matB, float rate, float* targetA, float* targetB, unsigned int len);
+*/
 #endif

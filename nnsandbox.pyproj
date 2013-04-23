@@ -30,8 +30,6 @@
   <ItemGroup>
     <Compile Include="Activation.py" />
     <Compile Include="BigMat.py" />
-    <Compile Include="gen_trainees.py" />
-    <Compile Include="test_render.py" />
     <Compile Include="Util.py" />
     <Compile Include="DataSet.py" />
     <Compile Include="Model.py" />

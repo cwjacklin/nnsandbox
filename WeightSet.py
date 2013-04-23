@@ -102,7 +102,7 @@ class DenseWeights(object):
         # Initialize to small random values uniformly centered around 0.0
         n,m = inlayer.size,outlayer.size
         scale = outlayer.init_scale
-        scale *= 1./(n+1)**.1
+        #scale *= 1./(n+1)**.1
         
         # Make W and b views into the memory
         if mem != None:
@@ -111,12 +111,22 @@ class DenseWeights(object):
         else:
             self.W = empty((n,m))
             self.b = empty((1,m))
-        fill_randn(self.W); imul(self.W,scale)
-        fill_randn(self.b); imul(self.b,scale)
-
+        fill_rand(self.W); isub(self.W,0.5); imul(self.W,2*scale)
+        fill_rand(self.b); isub(self.b,0.5); imul(self.b,2*scale); square(self.b,out=self.b)
+        #self.W *= 10
+        '''
+        if n == 784:
+            tmp = np.random.rand(n,m)
+            tmp *= 2
+            tmp -= 1
+            tmp[np.abs(tmp) < 0.985] *= 0
+            tmp[np.abs(tmp) < 0.998] *= 0.2
+            tmp *= 15
+            self.W[:] = tmp
+        '''
         self._tmp_W = None
 
-    def fprop(self,Hin,Hout):
+    def fprop(self,Hin,Hout,dfout):
         W,b = self.W,self.b
 
         # Compute activation function inputs A
@@ -124,9 +134,9 @@ class DenseWeights(object):
         iadd(Hout,b)           # A += b
 
         # Compute activation function outputs f(A), derivative f'(A) while we're at it
-        self.outlayer.f.apply(Hout)  # H[k] = f(A), df[k] = f'(A)
+        self.outlayer.f(Hout,out=Hout,dout=dfout)  # H[k] = f(A), df[k] = f'(A)
 
-    def bprop(self,Din,Dout,Hout,apply_regularizer=None):
+    def bprop(self,Din,Dout,Hout,dfout,apply_regularizer=None):
         dot_nt(Din,self.W,out=Dout)
               
         # Add gradient contribution of hidden-unit regularizer, if any
@@ -134,8 +144,7 @@ class DenseWeights(object):
             apply_regularizer(Dout,Hout)
                 
         # Multiply Delta by f'(A) from the corresponding layer
-        self.outlayer.f.apply_deriv(Hout)
-        imul(Dout,Hout)
+        imul(Dout,dfout)
 
     def copy(self):
         cp = DenseWeights(self.inlayer,self.outlayer)

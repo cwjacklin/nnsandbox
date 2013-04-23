@@ -19,14 +19,11 @@ class ActivationLinear(Activation):
     def ideal_range(self):  return [-1,1]
     def actual_range(self): return [-inf,inf]
 
-    def __call__(self,A,out=None,dout=None):
-        if out == None:
-            return A
+    def __call__(self,A,out,dout):
         if not (out is A):
             out[:] = A[:]
         if dout != None:
-            imul(dout,0)
-            iadd(dout,1)
+            iassign(dout,1)
 
 
 class ActivationLogistic(Activation):
@@ -36,11 +33,10 @@ class ActivationLogistic(Activation):
     def ideal_range(self):  return [ 0.1,0.9]
     def actual_range(self): return [ 0.0,1.0]
 
-    def apply(self,A):
-        logistic(A,out=A)
-
-    def apply_deriv(self,fA):
-        logistic_deriv(fA,out=fA)
+    def __call__(self,A,out,dout):
+        logistic(A,out=out)
+        if dout != None:
+            logistic_deriv(out,out=dout)
 
 
 class ActivationTanh(Activation):
@@ -50,11 +46,10 @@ class ActivationTanh(Activation):
     def ideal_range(self):  return [-0.9,0.9]
     def actual_range(self): return [-1.0,1.0]
 
-    def apply(self,A):
-        tanh(A,out=A)
-
-    def apply_deriv(self,fA):
-        tanh_deriv(fA,out=fA)
+    def __call__(self,A,out,dout):
+        tanh(A,out=out)
+        if dout != None:
+            tanh_deriv(out,out=dout)
 
 
 class ActivationRelu(Activation):
@@ -64,11 +59,8 @@ class ActivationRelu(Activation):
     def ideal_range(self):  return [ 0.0,1.0]
     def actual_range(self): return [ 0.0,inf]
 
-    def apply(self,A):
-        maximum(0,A,out=A)
-
-    def apply_deriv(self,fA):
-        sign(fA,out=fA)
+    def __call__(self,A,out,dout):
+        relu(A,out=out,dout=dout)
 
 
 class ActivationSoftmax(Activation):
@@ -82,18 +74,17 @@ class ActivationSoftmax(Activation):
     def actual_range(self): return [0.0,1.0]
     def ideal_loss(self):   return 'nll'
 
-    def apply(self,A):
+    def __call__(self,A,out,dout):
         # First pre-allocate enough memory to accumulate denominator of each sample
-        denom = self._tmp_denom.get_capacity(A.shape[0],1)
+        maxval = denom = self._tmp_denom.get_capacity(A.shape[0],1)
 
-        # Then compute softmax
-        exp(A,out=A)
-        sum(A,axis=1,out=denom)
+        # Then compute logsum softmax (subtract off maximum value)
+        max(A,axis=1,out=maxval)
+        subtract(A,maxval,out=out)
+        exp(out,out=out)
+        sum(out,axis=1,out=denom)
         reciprocal(denom,out=denom)
-        multiply(A,denom,out=A)
-
-    def apply_deriv(self,fA):
-        pass
+        multiply(out,denom,out=out)
 
 
 ##########################################################

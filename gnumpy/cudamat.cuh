@@ -7,15 +7,18 @@
 #define ERROR_TRANSPOSEDNESS -7
 #define ERROR_NOT_ON_DEVICE -8
 #define ERROR_UNSUPPORTED -9
+#define ERROR_MISMATCHED_DTYPE -10
+#define ERROR_DTYPE_UNSUPPORTED -11
 
 struct cudamat {
-    float* data_host;
-    float* data_device;
+    void* data_host;
+    void* data_device;
     int on_device;
     int on_host;
     int size[2];
     int is_trans; // 0 or 1
     int owns_data;
+	int dtype;   // 0 = float, 1 = unsigned char
 };
 
 struct rnd_struct {

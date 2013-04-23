@@ -1,7 +1,57 @@
 #include "cudamat_kernels.cuh"
 #include "float.h"
 
+typedef unsigned char uchar;
+typedef unsigned int  uint;
+
+template <typename T> struct select4 { };
+template <> struct select4<float>  { typedef float4  type; template <typename A> __device__ inline static float4  make(const A& a) { return make_float4 (a.x,a.y,a.z,a.w); }};
+template <> struct select4<double> { typedef double4 type; template <typename A> __device__ inline static double4 make(const A& a) { return make_double4(a.x,a.y,a.z,a.w); }};
+template <typename R> inline __device__ typename select4<R>::type saturate(float4 a) { return select4<R>::make(make_float4(__saturatef(a.x),__saturatef(a.y),__saturatef(a.z),__saturatef(a.w))); }
+
+
+#define DEFINE_FUNCTIONS(T) \
+	template <typename A> inline __device__ __host__ T##4 make_##T##4(A a) { return make_##T##4((T)a.x,(T)a.y,(T)a.z,(T)a.w); } \
+	DEFINE_OPERATORS(T,+) \
+	DEFINE_OPERATORS(T,-) \
+	DEFINE_OPERATORS(T,*) \
+	DEFINE_OPERATORS(T,/)
+
+#define DEFINE_OPERATORS(T,OP) \
+	inline __device__ __host__ T##4 operator OP (T##4 a, T##4 b)  { return make_##T##4(a.x OP b.x, a.y OP b.y, a.z OP b.z, a.w OP b.w); } \
+	inline __device__ __host__ T##4 operator OP (T    a, T##4 b)  { return make_##T##4(a   OP b.x, a   OP b.y, a   OP b.z, a   OP b.w); } \
+	inline __device__ __host__ T##4 operator OP (T##4 a, T    b)  { return make_##T##4(a.x OP b  , a.y OP b  , a.z OP b  , a.w OP b  ); } \
+	inline __device__ __host__ T##4 operator OP=(T##4& a, T##4 b) { a.x OP= b.x; a.y OP= b.y; a.z OP= b.z; a.w OP= b.w; return a; } \
+	inline __device__ __host__ T##4 operator OP=(T##4& a, T    b) { a.x OP= b;   a.y OP= b;   a.z OP= b;   a.w OP= b;   return a; } 
+
+DEFINE_FUNCTIONS(uchar)
+DEFINE_FUNCTIONS(uint)
+DEFINE_FUNCTIONS(float)
+DEFINE_FUNCTIONS(double)
+
+
+
+
+
 /* ------------------------- Random number generation ------------------------- */
+
+__device__ float  _exp(float   x) { return __expf(x); }
+__device__ double _exp(double  x) { return   exp(x);  }
+__device__ float  _log(float   x) { return __logf(x); }
+__device__ double _log(double  x) { return   log(x);  }
+__device__ float  _sqrt(float  x) { return sqrtf(x);  }
+__device__ double _sqrt(double x) { return  sqrt(x);  }
+__device__ float  _pow(float  x, float p)  { return __powf(x,p);  }
+__device__ double _pow(double x, double p) { return   pow(x,p);  }
+
+
+__device__ unsigned char _exp(unsigned char x)  { return  (unsigned char)_exp((float)x);  }
+__device__ unsigned char _log(unsigned char x)  { return  (unsigned char)_log((float)x);  }
+__device__ unsigned char _sqrt(unsigned char x) { return  (unsigned char)_sqrt((float)x);  }
+
+__device__ unsigned  _exp(unsigned x)  { return  (unsigned )_exp((double)x);  }
+__device__ unsigned  _log(unsigned x)  { return  (unsigned )_log((double)x);  }
+__device__ unsigned  _sqrt(unsigned x) { return  (unsigned )_sqrt((double)x);  }
 
 __global__ void kSeedRandom(unsigned int* rndMults, unsigned long long* rndWords, unsigned int seed) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -60,7 +110,8 @@ __global__ void kRandomGaussian(unsigned int* rndMults, unsigned long long* rndW
 /*
 Copy row slice from source to target. There is a block for every 32x32 chunk being copied.
 */
-__global__ void kGetRowSlice(float* source, float* target, int start, int end, int width, int height) {
+template <typename T>
+__global__ void kGetRowSlice(T* source, T* target, int start, int end, int width, int height) {
     const int row = start + blockIdx.x * 32 + threadIdx.x;
     const int start_col = blockIdx.y * 32;
 
@@ -74,7 +125,8 @@ __global__ void kGetRowSlice(float* source, float* target, int start, int end, i
     }
 }
 
-__global__ void kSetRowSlice(float* source, float* target, int start, int end, int width, int height) {
+template <typename T>
+__global__ void kSetRowSlice(T* source, T* target, int start, int end, int width, int height) {
     const int row = start + blockIdx.x * 32 + threadIdx.x;
     const int start_col = blockIdx.y * 32;
 
@@ -90,8 +142,9 @@ __global__ void kSetRowSlice(float* source, float* target, int start, int end, i
     }
 }
 
-__global__ void kTranspose(float *odata, float *idata, int width, int height) {
-    __shared__ float block[COPY_BLOCK_SIZE][COPY_BLOCK_SIZE+1];
+template <typename T> 
+__global__ void kTranspose(T *odata, T *idata, int width, int height) {
+    __shared__ T block[COPY_BLOCK_SIZE][COPY_BLOCK_SIZE+1];
 
     // read the matrix tile into shared memory
     unsigned int xIndex = blockIdx.x * COPY_BLOCK_SIZE + threadIdx.x;
@@ -118,47 +171,52 @@ __global__ void kTranspose(float *odata, float *idata, int width, int height) {
 
 /* ------------------------- Mathematical operations ------------------------- */
 
-__global__ void kLessThan(float* mat1, float* mat2, float* target, unsigned int len) {
+template <typename T, typename R>
+__global__ void kLessThan(T* mat1, T* mat2, R* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = mat1[i] < mat2[i];
+        target[i] = (R)(mat1[i] < mat2[i]);
     }
 }
 
-__global__ void kLessThanScalar(float* mat, float val, float* target, unsigned int len) {
+template <typename T, typename R>
+__global__ void kLessThanScalar(T* mat, T val, R* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = mat[i] < val;
+        target[i] = (R)(mat[i] < val);
     }
 }
 
-__global__ void kGreaterThan(float* mat1, float* mat2, float* target, unsigned int len) {
+template <typename T, typename R>
+__global__ void kGreaterThan(T* mat1, T* mat2, R* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = mat1[i] > mat2[i];
+        target[i] = (R)(mat1[i] > mat2[i]);
     }
 }
 
-__global__ void kGreaterThanScalar(float* mat, float val, float* target, unsigned int len) {
+template <typename T, typename R>
+__global__ void kGreaterThanScalar(T* mat, T val, R* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = mat[i] > val;
+        target[i] = (R)(mat[i] > val);
     }
 }
 
-__global__ void kMaximum(float* mat1, float* mat2, float* target, unsigned int len) {
+template <typename T>
+__global__ void kMaximum(T* mat1, T* mat2, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -168,7 +226,8 @@ __global__ void kMaximum(float* mat1, float* mat2, float* target, unsigned int l
     }
 }
 
-__global__ void kMaximumScalar(float* mat, float val, float* target, unsigned int len) {
+template <typename T>
+__global__ void kMaximumScalar(T* mat, T val, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -178,10 +237,11 @@ __global__ void kMaximumScalar(float* mat, float val, float* target, unsigned in
     }
 }
 
-__global__ void kMaxColumnwise(float* mat, float* target, unsigned int width, unsigned int height) {
-    __shared__ float max_vals[32];
-    float cur_max = -FLT_MAX;
-    float val = 0;
+template <typename T>
+__global__ void kMaxColumnwise(T* mat, T* target, unsigned int width, unsigned int height, T type_min) {
+    __shared__ T max_vals[32];
+    T cur_max = type_min;
+    T val = 0;
  
     #pragma unroll
     for (unsigned int i = threadIdx.x; i < height; i += 32) {
@@ -196,7 +256,7 @@ __global__ void kMaxColumnwise(float* mat, float* target, unsigned int width, un
     __syncthreads();
 
     if (threadIdx.x == 0) {
-        cur_max = -FLT_MAX;
+        cur_max = type_min;
 
         #pragma unroll
         for (unsigned int i = 0; i < 32; i++)
@@ -207,7 +267,38 @@ __global__ void kMaxColumnwise(float* mat, float* target, unsigned int width, un
     }
 }
 
-__global__ void kSign(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kMinColumnwise(T* mat, T* target, unsigned int width, unsigned int height, T type_max) {
+    __shared__ T min_vals[32];
+    T cur_min = type_max;
+    T val = 0;
+ 
+    #pragma unroll
+    for (unsigned int i = threadIdx.x; i < height; i += 32) {
+        val = mat[blockIdx.x * height + i];
+
+        if (val < cur_min)
+            cur_min = val;
+    }
+
+    min_vals[threadIdx.x] = cur_min;
+
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        cur_min = type_max;
+
+        #pragma unroll
+        for (unsigned int i = 0; i < 32; i++)
+            if (min_vals[i] < cur_min)
+                cur_min = min_vals[i];
+
+        target[blockIdx.x] = cur_min;
+    }
+}
+
+template <typename T>
+__global__ void kSign(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -217,17 +308,32 @@ __global__ void kSign(float* mat, float* target, unsigned int len) {
     }
 }
 
-__global__ void kApplySigmoid(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kApplyReluD(T* mat, T* target, T* dtarget, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = 1 / (1 + __expf(-mat[i]));
+		T test = mat[i] > 0 ? 1 : 0;
+		target[i] = mat[i]*test;
+		dtarget[i] = 1*test;
     }
 }
 
-__global__ void kApplySigmoidDeriv(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kApplySigmoid(T* mat, T* target, unsigned int len) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < len; i += numThreads) {
+        target[i] = 1 / (1 + _exp(-mat[i]));
+    }
+}
+
+template <typename T>
+__global__ void kApplySigmoidDeriv(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -237,23 +343,24 @@ __global__ void kApplySigmoidDeriv(float* mat, float* target, unsigned int len) 
     }
 }
 
-__global__ void kApplyTanh(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kApplyTanh(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
-    float mat_i, exp2x;
+    T mat_i, exp2x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
         mat_i = mat[i];
-        exp2x = __expf(2 * mat_i);
+        exp2x = _exp(2 * mat_i);
         target[i] = 1 - 2 / (exp2x + 1);
     }
 }
 
-__global__ void kApplyTanhDeriv(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kApplyTanhDeriv(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
-    float mat_i, exp2x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
@@ -261,7 +368,8 @@ __global__ void kApplyTanhDeriv(float* mat, float* target, unsigned int len) {
     }
 }
 
-__global__ void kApplyAbs(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kApplyAbs(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
     
@@ -271,52 +379,57 @@ __global__ void kApplyAbs(float* mat, float* target, unsigned int len) {
     }
 }
 
-__global__ void kApplyLog1PlusExp(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kApplyLog1PlusExp(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
-    float mat_i;
+    T mat_i;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
         mat_i = mat[i];
         if (mat_i > 0)
-            target[i] = (__logf(1 + __expf(-mat_i)) + mat_i);
+            target[i] = (_log(1 + _exp(-mat_i)) + mat_i);
         else
-            target[i] = __logf(1 + __expf(mat_i));
+            target[i] = _log(1 + _exp(mat_i));
     }
 }
 
-__global__ void kLog(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kLog(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = __logf(mat[i]);
+        target[i] = _log(mat[i]);
     }
 }
 
-__global__ void kExp(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kExp(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = __expf(mat[i]);
+        target[i] = _exp(mat[i]);
     }
 }
 
-__global__ void kSqrt(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kSqrt(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = sqrt(mat[i]);
+        target[i] = _sqrt(mat[i]);
     }
 }
 
-__global__ void kSquare(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kSquare(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -326,37 +439,51 @@ __global__ void kSquare(float* mat, float* target, unsigned int len) {
     }
 }
 
-__global__ void kPow(float* mat, float pow, float* target, unsigned int len) {
+template <typename T>
+__global__ void kPow(T* mat, T pow, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = powf(mat[i], pow);
+        target[i] = _pow(mat[i], pow);
     }
 }
 
-__global__ void kPowMatrix(float* mat, float* pow, float* target, unsigned int len) {
+template <typename T>
+__global__ void kPowMatrix(T* mat, T* pow, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = powf(mat[i], pow[i]);
+        target[i] = _pow(mat[i], pow[i]);
     }
 }
 
-__global__ void kReciprocal(float* mat, float* target, unsigned int len) {
+template <typename T>
+__global__ void kReciprocal(T* mat, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads)
-        target[i] = 1. / mat[i];
+        target[i] = (T)1 / mat[i];
 }
 
-__global__ void kAddColVector(float* mat, float* vec, float* tgtMat, unsigned int width,
-                              unsigned int height) {
+template <typename T>
+__global__ void kDiffCols(T* mat, T* target, unsigned int width, unsigned int height) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < (width-1) * height; i += numThreads) {
+        target[i] = mat[i+height] - mat[i];
+    }
+}
+
+template <typename T>
+__global__ void kAddColVector(T* mat, T* vec, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -366,8 +493,8 @@ __global__ void kAddColVector(float* mat, float* vec, float* tgtMat, unsigned in
     }
 }
 
-__global__ void kSubColVector(float* mat, float* vec, float* tgtMat, unsigned int width,
-                              unsigned int height) {
+template <typename T>
+__global__ void kSubColVector(T* mat, T* vec, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -377,7 +504,8 @@ __global__ void kSubColVector(float* mat, float* vec, float* tgtMat, unsigned in
     }
 }
 
-__global__ void kAddRowVector(float* mat, float* vec, float* tgtMat, unsigned int width, unsigned int height) {
+template <typename T>
+__global__ void kAddRowVector(T* mat, T* vec, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -387,7 +515,8 @@ __global__ void kAddRowVector(float* mat, float* vec, float* tgtMat, unsigned in
     }
 }
 
-__global__ void kSubRowVector(float* mat, float* vec, float* tgtMat, unsigned int width, unsigned int height) {
+template <typename T>
+__global__ void kSubRowVector(T* mat, T* vec, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -397,8 +526,8 @@ __global__ void kSubRowVector(float* mat, float* vec, float* tgtMat, unsigned in
     }
 }
 
-__global__ void kAddColMult(float* mat, float* vec, float* tgtMat, float mult,
-                            unsigned int width, unsigned int height) {
+template <typename T>
+__global__ void kAddColMult(T* mat, T* vec, T* tgtMat, T mult, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -408,7 +537,8 @@ __global__ void kAddColMult(float* mat, float* vec, float* tgtMat, float mult,
     }
 }
 
-__global__ void kMultByColVector(float* mat, float* vec, float* tgtMat, unsigned int width, unsigned int height) {
+template <typename T>
+__global__ void kMultByColVector(T* mat, T* vec, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -418,7 +548,8 @@ __global__ void kMultByColVector(float* mat, float* vec, float* tgtMat, unsigned
     }
 }
 
-__global__ void kMultByRowVector(float* mat, float* vec, float* tgtMat, unsigned int width, unsigned int height) {
+template <typename T>
+__global__ void kMultByRowVector(T* mat, T* vec, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -428,19 +559,21 @@ __global__ void kMultByRowVector(float* mat, float* vec, float* tgtMat, unsigned
     }
 }
 
-__global__ void kMultByColRecipSqrt(float* mat, float* vec, float eps, float* tgtMat, unsigned int width, unsigned int height) {
+template <typename T>
+__global__ void kClipNorm(T* mat, T* vec, T maxnorm_sqr, T* tgtMat, unsigned int width, unsigned int height) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < width * height; i += numThreads) {
-        float val = vec[i % height];
-        if (val > eps)
-            tgtMat[i] = eps * mat[i] / sqrt(val);
+        T val = vec[i % height];
+		T scale = val > maxnorm_sqr ? (maxnorm_sqr/_sqrt(val)) : 1;
+        tgtMat[i] = scale*mat[i];
     }
 }
 
-__global__ void kAdd(float* a, float* b, float* dest, unsigned int numEls) {
+template <typename T>
+__global__ void kAdd(T* a, T* b, T* dest, unsigned int numEls) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -450,7 +583,35 @@ __global__ void kAdd(float* a, float* b, float* dest, unsigned int numEls) {
     }
 }
 
-__global__ void kSubtract(float* a, float* b, float* dest, unsigned int numEls) {
+template <typename T>
+__global__ void kAddTrans(T* a, T* b, T* dest, unsigned int width, unsigned int height) {
+    __shared__ T block[COPY_BLOCK_SIZE][COPY_BLOCK_SIZE+1];
+
+    // read the matrix tile into shared memory
+    unsigned int xIndex = blockIdx.x * COPY_BLOCK_SIZE + threadIdx.x;
+    unsigned int yIndex = blockIdx.y * COPY_BLOCK_SIZE + threadIdx.y;
+
+    if((xIndex < width) && (yIndex < height)) {
+        unsigned int index_in = yIndex * width + xIndex;
+
+        block[threadIdx.y][threadIdx.x] = b[index_in];
+    }
+
+    __syncthreads();
+
+    // write the transposed matrix tile to global memory
+    xIndex = blockIdx.y * COPY_BLOCK_SIZE + threadIdx.x;
+    yIndex = blockIdx.x * COPY_BLOCK_SIZE + threadIdx.y;
+
+    if((xIndex < height) && (yIndex < width)) {
+        unsigned int index_out = yIndex * height + xIndex;
+
+        dest[index_out] = a[index_out] + block[threadIdx.x][threadIdx.y];
+    }
+}
+
+template <typename T>
+__global__ void kSubtract(T* a, T* b, T* dest, unsigned int numEls) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -460,7 +621,35 @@ __global__ void kSubtract(float* a, float* b, float* dest, unsigned int numEls) 
     }
 }
 
-__global__ void kDivide(float* a, float* b, float* dest, unsigned int numEls) {
+template <typename T>
+__global__ void kSubtractTrans(T* a, T* b, T* dest, unsigned int width, unsigned int height) {
+    __shared__ T block[COPY_BLOCK_SIZE][COPY_BLOCK_SIZE+1];
+
+    // read the matrix tile into shared memory
+    unsigned int xIndex = blockIdx.x * COPY_BLOCK_SIZE + threadIdx.x;
+    unsigned int yIndex = blockIdx.y * COPY_BLOCK_SIZE + threadIdx.y;
+
+    if((xIndex < width) && (yIndex < height)) {
+        unsigned int index_in = yIndex * width + xIndex;
+
+        block[threadIdx.y][threadIdx.x] = b[index_in];
+    }
+
+    __syncthreads();
+
+    // write the transposed matrix tile to global memory
+    xIndex = blockIdx.y * COPY_BLOCK_SIZE + threadIdx.x;
+    yIndex = blockIdx.x * COPY_BLOCK_SIZE + threadIdx.y;
+
+    if((xIndex < height) && (yIndex < width)) {
+        unsigned int index_out = yIndex * height + xIndex;
+
+        dest[index_out] = a[index_out] - block[threadIdx.x][threadIdx.y];
+    }
+}
+
+template <typename T>
+__global__ void kDivide(T* a, T* b, T* dest, unsigned int numEls) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -470,7 +659,8 @@ __global__ void kDivide(float* a, float* b, float* dest, unsigned int numEls) {
     }
 }
 
-__global__ void kMult(float* a, float* b, float* dest, unsigned int numEls) {
+template <typename T>
+__global__ void kMult(T* a, T* b, T* dest, unsigned int numEls) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -480,7 +670,8 @@ __global__ void kMult(float* a, float* b, float* dest, unsigned int numEls) {
     }
 }
 
-__global__ void kMultScalar(float* mat, float alpha, float* dest, unsigned int len) {
+template <typename T>
+__global__ void kMultScalar(T* mat, T alpha, T* dest, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -489,7 +680,19 @@ __global__ void kMultScalar(float* mat, float alpha, float* dest, unsigned int l
     }
 }
 
-__global__ void kAssignScalar(float* dest, float alpha, unsigned int len) {
+template <typename T1,typename T2>
+__global__ void kAssignArray(T1* src, T2* dst, unsigned int len) {
+    const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int numThreads = blockDim.x * gridDim.x;
+
+    #pragma unroll
+    for (unsigned int i = idx; i < len; i += numThreads) {
+        dst[i] = (T2)src[i];
+    }
+}
+
+template <typename T>
+__global__ void kAssignScalar(T* dest, T alpha, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -499,7 +702,8 @@ __global__ void kAssignScalar(float* dest, float alpha, unsigned int len) {
     }
 }
 
-__global__ void kDivideScalar(float* mat, float alpha, float* dest, unsigned int len) {
+template <typename T>
+__global__ void kDivideScalar(T* mat, T alpha, T* dest, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -509,7 +713,8 @@ __global__ void kDivideScalar(float* mat, float alpha, float* dest, unsigned int
     }
 }
 
-__global__ void kAddScalar(float* a, float alpha, float* dest, unsigned int numEls) {
+template <typename T>
+__global__ void kAddScalar(T* a, T alpha, T* dest, unsigned int numEls) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
@@ -519,7 +724,8 @@ __global__ void kAddScalar(float* a, float alpha, float* dest, unsigned int numE
     }
 }
 
-__global__ void kSelectRows(float* source, float* target, float* indices, int nRowIs, int nCols, int nSourceRows){
+template <typename T>
+__global__ void kSelectRows(T* source, T* target, float* indices, int nRowIs, int nCols, int nSourceRows){
     __shared__ int sourceRowIndices[32];
     const int startTargetRowI = blockIdx.x * 32;
     const int tid = threadIdx.x;
@@ -545,7 +751,8 @@ __global__ void kSelectRows(float* source, float* target, float* indices, int nR
     }
 }
 
-__global__ void kSetSelectedRows(float* target, float* source, float* indices, int nRowIs, int nCols, int nTargetRows){
+template <typename T>
+__global__ void kSetSelectedRows(T* target, T* source, float* indices, int nRowIs, int nCols, int nTargetRows){
     __shared__ int targetRowIndices[32];
     const int startSourceRowI = blockIdx.x * 32;
     const int tid = threadIdx.x;
@@ -571,7 +778,8 @@ __global__ void kSetSelectedRows(float* target, float* source, float* indices, i
     }
 }
 
-__global__ void kDropout(unsigned int* rndMults, unsigned long long* rndWords, float* matA, float* matB, float rate, float* targetA, float* targetB, unsigned int len) {
+template <typename TA, typename TB>
+__global__ void kDropout(unsigned int* rndMults, unsigned long long* rndWords, TA* matA, TB* matB, float rate, TA* targetA, TB* targetB, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     unsigned long long rndWord = rndWords[idx];
     const unsigned int rndMult = rndMults[idx];
@@ -581,8 +789,8 @@ __global__ void kDropout(unsigned int* rndMults, unsigned long long* rndWords, f
         rndWord = rndMult * LOW_BITS(rndWord) + HIGH_BITS(rndWord);
         float trial = (__uint2float_rn(LOW_BITS(rndWord)) + 1.0f) / 4294967296.0f;
         if (trial < rate) {
-            targetB[i] = 0.0f;
-            targetA[i] = 0.0f;
+            targetB[i] = (TA)0;
+            targetA[i] = (TB)0;
         } else {
             targetB[i] = matB[i];
             targetA[i] = matA[i];
@@ -590,5 +798,4 @@ __global__ void kDropout(unsigned int* rndMults, unsigned long long* rndWords, f
     }
     rndWords[idx] = rndWord;
 }
-
 

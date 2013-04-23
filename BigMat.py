@@ -26,19 +26,20 @@ except ImportError:
 default_dtype = 'float32'
 backend = None   # NumpyBackend or GnumpyBackend
 gradcheck_mode = False
+device_prop = None
 
 ####################################################
 
 class NumpyBackend(object):
 
     @staticmethod
-    def empty(shape):    return np.empty(shape,default_dtype)
+    def empty(shape,dtype):    return np.empty(shape,dtype=dtype)
 
     @staticmethod
-    def zeros(shape):    return np.zeros(shape,default_dtype)
+    def zeros(shape,dtype):    return np.zeros(shape,dtype=dtype)
 
     @staticmethod
-    def ones(shape):     return np.ones(shape,default_dtype)
+    def ones(shape,dtype):     return np.ones(shape,dtype=dtype)
 
     @staticmethod
     def rand(*shape):    return np.array(np.random.rand(*shape),default_dtype)
@@ -53,13 +54,16 @@ class NumpyBackend(object):
     def fill_randn(out): out[:] = np.random.randn(out.shape[0],out.shape[1])
 
     @staticmethod
-    def array(A):        return np.array(A,default_dtype)
+    def array(A,dtype):  return np.array(A,dtype=dtype)
 
     @staticmethod
-    def asarray(A):      return np.asarray(A,default_dtype)
+    def asarray(A,dtype):return np.asarray(A,dtype=dtype)
 
     @staticmethod
     def as_numpy(A):     return A
+
+    @staticmethod
+    def diff(A,axis,out): return np.diff(A,axis=axis,out=out)
 
     @staticmethod
     def dot(A,B,out):    return np.dot(A,B,out=out)
@@ -102,15 +106,28 @@ class NumpyBackend(object):
     def sign(A,out):     return np.sign(A,out=out)
 
     @staticmethod
+    def relu(A,out,dout): 
+        result = np.maximum(0,A,out=out)
+        if dout != None:
+            np.sign(out,out=dout)
+        return result
+
+    @staticmethod
     def logistic_deriv(A,out): return np.subtract(A,np.square(A),out=out)
 
     @staticmethod
     def tanh_deriv(A,out): 
         if out == None: 
-            out = empty(A.shape())
+            out = empty(A.shape(),dtype=A.dtype)
         np.square(A,out=out)
         np.subtract(1,out,out=out)
         return out
+
+    @staticmethod
+    def max(A,axis,out): return np.max(A,axis=axis,out=out.ravel() if out != None else None)
+
+    @staticmethod
+    def min(A,axis,out): return np.min(A,axis=axis,out=out.ravel() if out != None else None)
 
     @staticmethod
     def sum(A,axis,out): return np.sum(A,axis=axis,out=out.ravel() if out != None else None)
@@ -122,13 +139,22 @@ class NumpyBackend(object):
     def add(A,B,out):       return np.add(A,B,out=out)
 
     @staticmethod
+    def add_nt(A,B,out):  return np.add(A,B.transpose(),out=out)
+
+    @staticmethod
     def iadd(A,B):          A += B
 
     @staticmethod
     def iaddmul(A,B,alpha): B *= alpha; A += B
 
     @staticmethod
+    def iassign(A,B):       A[:] = B
+
+    @staticmethod
     def subtract(A,B,out):  return np.subtract(A,B,out=out)
+
+    @staticmethod
+    def subtract_nt(A,B,out):  return np.subtract(A,B.transpose(),out=out)
 
     @staticmethod
     def isub(A,B):          A -= B
@@ -149,17 +175,24 @@ class NumpyBackend(object):
     def reciprocal(A,out):  return np.divide(1.,A,out=out)
 
     @staticmethod
+    def transpose(A,out):
+        AT = A.transpose()
+        if out != None:
+            out[:] = AT
+        return AT
+
+    @staticmethod
     def maximum(A,B,out):   return np.maximum(A,B,out=out)
 
     @staticmethod
-    def clip_norm(A,axis,maxnorm,temp_mem):
+    def clip_norm(A,maxnorm,axis,temp_mem):
         if axis != 0:
             raise NotImplementedError("normalization of individual rows not yet implemented")
         # If a temporary memory buffer was supplied, use it instead of allocating a new one
         if temp_mem != None:
             T,t = temp_mem 
         else:
-            T,t = np.empty(A.shape),np.empty((1,A.shape[1]))
+            T,t = np.empty(A.shape,dtype=A.dtype),np.empty((1,A.shape[1]),dtype=A.dtype)
                 
         # Compute the square of the norm of weights entering each destination unit (norm along rows)
         np.square(A,out=T)
@@ -181,18 +214,22 @@ class NumpyBackend(object):
         if B != None:
             multiply(B,mask,out=outB)
 
+    @staticmethod
+    def composite(I,channels,backgrounds,out):
+        raise Exception("compositing not implemented for numpy backend")
+
 #############################################
 
 class GnumpyBackend(object):
 
     @staticmethod
-    def empty(shape):    return gp.empty(shape)
+    def empty(shape,dtype):    return gp.empty(shape,dtype=dtype)
 
     @staticmethod
-    def zeros(shape):    return gp.zeros(shape)
+    def zeros(shape,dtype):    return gp.zeros(shape,dtype=dtype)
 
     @staticmethod
-    def ones(shape):     return gp.ones(shape)
+    def ones(shape,dtype):     return gp.ones(shape,dtype=dtype)
 
     @staticmethod
     def rand(*shape):    return gp.rand(*shape)
@@ -207,25 +244,44 @@ class GnumpyBackend(object):
     def fill_randn(out): out._base.fill_with_randn()
 
     @staticmethod
-    def array(A):        return gp.garray(A)
+    def array(A,dtype):        return gp.garray(A,dtype=dtype)
 
     @staticmethod
-    def asarray(A):      return gp.garray(A,copy=False)
+    def asarray(A,dtype): 
+        if dtype == None:
+            dtype = A.dtype
+        if isinstance(A,gp.garray):
+            return A.astype(dtype)
+        return gp.garray(A,dtype=dtype)
 
     @staticmethod
     def as_numpy(A):     return A.as_numpy_array(default_dtype)
 
     @staticmethod
+    def diff(A,axis,out):
+        if axis==0:
+            if out == None:
+                out = gp.empty((A.shape[0]-1,A.shape[1]),dtype=A.dtype)
+            A._base_shaped(1).diff_cols(target=out._base_shaped(1))
+            return out
+        else:
+            if out == None:
+                out = gp.empty((A.shape[0],A.shape[1]-1),dtype=A.dtype)
+            A._base_shaped(1).diff_rows(target=out._base_shaped(1))
+            return out
+
+
+    @staticmethod
     def dot(A,B,out):
         if out == None:
-            out = gp.empty((A.shape[0],B.shape[1]))
+            out = gp.empty((A.shape[0],B.shape[1]),dtype=A.dtype)
         cudamat.dot(B._base_as_2d(),A._base_as_2d(),target=out._base_as_2d())
         return out
 
     @staticmethod
     def dot_tn(A,B,out):
         if out == None:
-            out = gp.empty((A.shape[1],B.shape[1]))
+            out = gp.empty((A.shape[1],B.shape[1]),dtype=A.dtype)
         cudamat.dot(B._base_as_2d(),A._base_as_2d().T,target=out._base_as_2d())
         return out
 
@@ -234,7 +290,7 @@ class GnumpyBackend(object):
         # Using B._base_as_2d().T does not work; cudamat returns dimensionality error
         B._base.mat.is_trans = not B._base.mat.is_trans
         if out == None:
-            out = gp.empty((A.shape[1],B.shape[1]))
+            out = gp.empty((A.shape[1],B.shape[1]),dtype=A.dtype)
         cudamat.dot(B._base_as_2d(),A._base_as_2d(),target=out._base_as_2d())
         B._base.mat.is_trans = not B._base.mat.is_trans
         return out
@@ -242,14 +298,14 @@ class GnumpyBackend(object):
     @staticmethod
     def square(A,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         cudamat.square(A._base_as_row(),target=out._base_as_row())
         return out
 
     @staticmethod
     def _unary(func,A,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         func(A._base_as_row(),target=out._base_as_row())
         return out
 
@@ -275,16 +331,50 @@ class GnumpyBackend(object):
     def sign(A,out):     return GnumpyBackend._unary(cudamat.CUDAMatrix.sign,A,out)
 
     @staticmethod
+    def relu(A,out,dout): 
+        cudamat.relu(A._base_as_row(),
+                     target =( out._base_as_row() if  out != None else None),
+                     dtarget=(dout._base_as_row() if dout != None else None))
+
+    @staticmethod
     def logistic_deriv(A,out): return GnumpyBackend._unary(cudamat.sigmoid_deriv,A,out)
 
     @staticmethod
     def tanh_deriv(A,out): return GnumpyBackend._unary(cudamat.tanh_deriv,A,out)
 
     @staticmethod
+    def max(A,axis,out):
+        if A.ndim == 2: 
+            if out == None:
+                out = gp.empty((A.shape[0],1) if axis == 1 else (1,A.shape[1]),dtype=A.dtype)
+            A._base_shaped(1).max(1-axis,target=out._base_shaped(1))
+            return out
+        else:
+            r = gp.max(A,axis)  # gnumpy has optimized max over 1D vectors, so use it
+            if out != None:
+                assert(out.size == 1)
+                out[:] = r[:]
+            return r
+
+    @staticmethod
+    def min(A,axis,out):
+        if A.ndim == 2: 
+            if out == None:
+                out = gp.empty((A.shape[0],1) if axis == 1 else (1,A.shape[1]),dtype=A.dtype)
+            A._base_shaped(1).min(1-axis,target=out._base_shaped(1))
+            return out
+        else:
+            r = gp.min(A,axis)  # gnumpy has optimized max over 1D vectors, so use it
+            if out != None:
+                assert(out.size == 1)
+                out[:] = r[:]
+            return r
+
+    @staticmethod
     def sum(A,axis,out):
         if A.ndim == 2: 
             if out == None:
-                out = gp.empty((A.shape[0],1) if axis == 1 else (1,A.shape[1]))
+                out = gp.empty((A.shape[0],1) if axis == 1 else (1,A.shape[1]),dtype=A.dtype)
             cudamat.sum(A._base_shaped(1),1-axis,target=out._base_shaped(1))
             return out
         else:
@@ -303,15 +393,17 @@ class GnumpyBackend(object):
     @staticmethod
     def _add(A,B,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         if np.isscalar(B): 
             A._base_shaped(1).add(B,target=out._base_shaped(1))
+        elif B.shape == A.shape:
+            A._base_shaped(1).add(B._base_shaped(1),target=out._base_shaped(1))
         elif (B.ndim == 1 or B.shape[0] == 1) and B.size == A.shape[1]:
             A._base_shaped(1).add_col_vec(B._base_shaped(1),target=out._base_shaped(1))
         elif (B.ndim == 1 or B.shape[1] == 1) and B.size == A.shape[0]:
             A._base_shaped(1).add_row_vec(B._base_shaped(1),target=out._base_shaped(1))
         else:
-            A._base_shaped(1).add(B._base_shaped(1),target=out._base_shaped(1))
+            raise Exception("unhandled case")
         return out
 
     @staticmethod
@@ -322,23 +414,42 @@ class GnumpyBackend(object):
         return GnumpyBackend._add(A,B,out)
 
     @staticmethod
+    def add_nt(A,B,out):
+        if out == None:
+            out = gp.empty(A.shape,dtype=A.dtype)
+        A._base_shaped(1).add_transpose(B._base_shaped(1),target=out._base_shaped(1))
+        return out
+
+    @staticmethod
     def iadd(A,B):          GnumpyBackend._add(A,B,A)
 
     @staticmethod
     def iaddmul(A,B,alpha): A._base_shaped(1).add_mult(B._base_shaped(1),alpha)
 
     @staticmethod
+    def iassign(A,B):       A._base_shaped(1).assign(B if np.isscalar(B) else B._base_shaped(1))
+
+    @staticmethod
     def subtract(A,B,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         if np.isscalar(B):
             A._base_shaped(1).subtract(B,target=out._base_shaped(1))
-        elif (B.ndim == 1 or B.shape[0] == 1) and B.size == A.shape[1]:
+        elif B.shape == A.shape:
+            A._base_shaped(1).subtract(B._base_shaped(1),target=out._base_shaped(1))
+        elif (B.ndim == 1 or B.shape[0] == 1) and (A.ndim == 1 or B.size == A.shape[1]):
             A._base_shaped(1).subtract_col_vec(B._base_shaped(1),target=out._base_shaped(1))
         elif (B.ndim == 1 or B.shape[1] == 1) and B.size == A.shape[0]:
             A._base_shaped(1).subtract_row_vec(B._base_shaped(1),target=out._base_shaped(1))
         else:
-            A._base_shaped(1).subtract(B._base_shaped(1),target=out._base_shaped(1))
+            raise Exception("unhandled case")
+        return out
+
+    @staticmethod
+    def subtract_nt(A,B,out):
+        if out == None:
+            out = gp.empty(A.shape,dtype=A.dtype)
+        A._base_shaped(1).subtract_transpose(B._base_shaped(1),target=out._base_shaped(1))
         return out
 
     @staticmethod
@@ -347,15 +458,17 @@ class GnumpyBackend(object):
     @staticmethod
     def _multiply(A,B,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         if np.isscalar(B): 
             A._base_shaped(1).mult(B,target=out._base_shaped(1))
+        elif B.shape == A.shape:
+            A._base_shaped(1).mult(B._base_shaped(1),target=out._base_shaped(1))
         elif (B.ndim == 1 or B.shape[0] == 1) and B.size == A.shape[1]:
             A._base_shaped(1).mult_by_col(B._base_shaped(1),target=out._base_shaped(1))
         elif (B.ndim == 1 or B.shape[1] == 1) and B.size == A.shape[0]:
             A._base_shaped(1).mult_by_row(B._base_shaped(1),target=out._base_shaped(1))
         else:
-            A._base_shaped(1).mult(B._base_shaped(1),target=out._base_shaped(1))
+            raise Exception("unhandled case")
         return out
 
     @staticmethod
@@ -371,7 +484,7 @@ class GnumpyBackend(object):
     @staticmethod
     def divide(A,B,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         if np.isscalar(B):         A._base_shaped(1).divide(B,target=out._base_shaped(1))
         elif A.shape == B.shape:   A._base_shaped(1).divide(B._base_shaped(1),target=out._base_shaped(1))
         else: raise NotImplementedError("broadcasted division not implemented by cudamat")
@@ -380,18 +493,24 @@ class GnumpyBackend(object):
     @staticmethod
     def idiv(A,B):          GnumpyBackend.divide(A,B,A)
 
-
     @staticmethod
     def reciprocal(A,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         A._base_as_row().reciprocal(out._base_as_row())
+        return out
+
+    @staticmethod
+    def transpose(A,out):
+        if out == None:
+            out = gp.empty((A.shape[1],A.shape[0]),dtype=A.dtype)
+        A._base_shaped(1).transpose(out._base_shaped(1))
         return out
 
     @staticmethod
     def maximum(A,B,out):
         if out == None:
-            out = gp.empty(A.shape)
+            out = gp.empty(A.shape,dtype=A.dtype)
         if np.isscalar(A) and not np.isscalar(B):
             A,B = B,A
         if np.isscalar(B): A._base_shaped(1).maximum(B,target=out._base_shaped(1))
@@ -399,21 +518,21 @@ class GnumpyBackend(object):
         return out
 
     @staticmethod
-    def clip_norm(A,axis,maxnorm,temp_mem):
+    def clip_norm(A,maxnorm,axis,temp_mem):
         if axis != 0:
             raise NotImplementedError("normalization of individual rows not yet implemented")
         # If a temporary memory buffer was supplied, use it instead of allocating a new one
         if temp_mem != None:
             T,t = temp_mem 
         else:
-            T,t = empty(A.shape),empty((1,A.shape[1]))
+            T,t = empty(A.shape,dtype=A.dtype),empty((1,A.shape[1]),dtype=A.dtype)
                 
         # Compute the square of the norm of weights entering each destination unit (norm along rows)
         square(A,out=T)
         sum(T,axis=0,out=t)
 
         # Rescale any W[:,j] to have norm at most maxnorm 
-        A._base_shaped(1).mult_by_col_rsqrt(t._base_shaped(1),maxnorm,target=A._base_shaped(1))
+        A._base_shaped(1).clip_norm(t._base_shaped(1),maxnorm,target=A._base_shaped(1))
 
     @staticmethod
     def dropout(A,B,rate,outA,outB):
@@ -428,6 +547,19 @@ class GnumpyBackend(object):
                             targetA=outA._base_shaped(1),
                             targetB=None)
 
+    @staticmethod
+    def composite(I,channels,backgrounds,out):
+        cudamat.composite(I._base_shaped(1),channels._base_shaped(1),backgrounds._base_shaped(1),
+                          out._base_shaped(1))
+
+    @staticmethod
+    def cauchy(A,lambd,beta,out):
+        if out == None: 
+            out = A
+        cudamat.cauchy(A._base_as_row(),lambd,beta,out._base_as_row())
+        return out
+
+
 
 ###############################################################
 # Provide versions of numpy/gnumpy functions with "out" arguments
@@ -441,16 +573,17 @@ class GnumpyBackend(object):
 #
 
 
-def empty(shape):          return backend.empty(shape)
-def zeros(shape):          return backend.zeros(shape)
-def ones(shape):           return backend.ones(shape)
+def empty(shape,dtype=default_dtype):          return backend.empty(shape,dtype)
+def zeros(shape,dtype=default_dtype):          return backend.zeros(shape,dtype)
+def ones(shape,dtype=default_dtype):           return backend.ones(shape,dtype)
 def rand(*shape):          return backend.rand(*shape)
 def randn(*shape):         return backend.randn(*shape)
 def fill_rand(out):        return backend.fill_rand(out)
 def fill_randn(out):       return backend.fill_randn(out)
-def array(A):              return backend.array(A)         # new copy of A
-def asarray(A):            return backend.asarray(A)       # new *view* of A
+def array(A,dtype=None):              return backend.array(A,dtype)         # new copy of A
+def asarray(A,dtype=None):            return backend.asarray(A,dtype)       # new *view* of A
 def as_numpy(A):           return backend.as_numpy(A)
+def diff(A,axis=0,out=None):return backend.diff(A,axis,out)
 def dot(A,B,out=None):     return backend.dot(A,B,out)
 def dot_tn(A,B,out=None):  return backend.dot_tn(A,B,out)
 def dot_nt(A,B,out=None):  return backend.dot_nt(A,B,out)
@@ -462,29 +595,39 @@ def exp(A,out=None):       return backend.exp(A,out)      if not np.isscalar(A) 
 def log(A,out=None):       return backend.log(A,out)      if not np.isscalar(A) else np.log(A)
 def abs(A,out=None):       return backend.abs(A,out)      if not np.isscalar(A) else np.abs(A)
 def sign(A,out=None):      return backend.sign(A,out)     if not np.isscalar(A) else np.sign(A)
+def relu(A,out=None,dout=None): return backend.relu(A,out,dout) if not np.isscalar(A) else max(0,A)
 def logistic_deriv(A,out=None): return backend.logistic_deriv(A,out) if not np.isscalar(A) else A*(1-A)
 def tanh_deriv(A,out=None): return backend.tanh_deriv(A,out) if not np.isscalar(A) else 1-A**2
+def max(A,axis=0,out=None):return __builtins__['max'](A) if isinstance(A,list) else backend.max(A,axis,out)
+def min(A,axis=0,out=None):return __builtins__['min'](A) if isinstance(A,list) else backend.min(A,axis,out)
 def sum(A,axis=0,out=None):return __builtins__['sum'](A) if isinstance(A,list) else backend.sum(A,axis,out)
 def mean(A,axis=0,out=None):return backend.mean(A,axis,out)
 def add(A,B,out=None):     return backend.add(A,B,out)       # A + B
+def add_nt(A,B,out=None):return backend.add_nt(A,B,out)      # A + B.transpose()
 def iadd(A,B):             return backend.iadd(A,B)          # A += B
 def iaddmul(A,B,alpha):    return backend.iaddmul(A,B,alpha) # A += B*alpha (WARNING: value stored in B is undefined after this)
+def iassign(A,B):    return backend.iassign(A,B)
 def subtract(A,B,out=None):return backend.subtract(A,B,out)  # A - B
+def subtract_nt(A,B,out=None):return backend.subtract_nt(A,B,out)  # A - B.transpose()
 def isub(A,B):             return backend.isub(A,B)          # A -= B
 def multiply(A,B,out=None):return backend.multiply(A,B,out)  # A * B
 def imul(A,B):             return backend.imul(A,B)          # A *= B
 def divide(A,B,out=None):  return backend.divide(A,B,out)    # A / B
 def idiv(A,B):             return backend.idiv(A,B)          # A /= B
 def reciprocal(A,out=None):return backend.reciprocal(A,out)  # 1. / A 
+def transpose(A,out=None):return backend.transpose(A,out)
 def maximum(A,B,out=None): return backend.maximum(A,B,out)
-def clip_norm(A,axis=0,maxnorm=0.0,temp_mem=None): return backend.clip_norm(A,axis,maxnorm,temp_mem)   # A[:,i] ./= max(eps,sum(A[:,i]**2))
+def clip_norm(A,maxnorm,axis=0,temp_mem=None): return backend.clip_norm(A,maxnorm,axis,temp_mem)   # A[:,i] ./= max(eps,sum(A[:,i]**2))
 def dropout(A,B,rate,outA=None,outB=None): return backend.dropout(A,B,rate,outA,outB)
+def composite(I,channels,backgrounds,out): return backend.composite(I,channels,backgrounds,out)
+def cauchy(A,lambd,beta,out=None): return backend.cauchy(A,lambd,beta,out)
 
 ###################################################
 
 def set_backend(name,dtype='float32',device=None):
     global backend
     global default_dtype
+    global device_prop
     global _gnumpy_loaded
     if name == 'gnumpy':
         assert(dtype == 'float32')
@@ -495,9 +638,17 @@ def set_backend(name,dtype='float32',device=None):
         default_dtype = 'float32'
         if device == None:
             device = 0
+        cudamat.cublas_shutdown()
         cudamat.cuda_set_device(device)
-        prop = cudamat.cuda_get_device_prop(device)
-        print "Using device \"%s\"" % prop.name
+        cudamat.cuda_device_reset()
+        cudamat.cublas_init()
+        cudamat.CUDAMatrix.init_random(random.randint(0,100))
+        device = cudamat.cuda_get_device()
+        minfo = memory_info()
+        device_prop = cudamat.cuda_get_device_prop(device)
+        print "Device %d: %s (%s/%s)" % (device,device_prop.name,
+                                         _format_memsize(minfo.gpu_avail,fmt="2.2cM"),
+                                         _format_memsize(device_prop.totalGlobalMem,fmt="2.2cM"))
 
     elif name == 'numpy':
         backend = NumpyBackend
@@ -519,8 +670,11 @@ class MemoryInfo(object):
         self.gpu_total = None
 
     def __repr__(self):
-        str  = 'cpu = %s/%s; ' % (_format_memsize(self.cpu_avail,fmt="2.2cM"),_format_memsize(self.cpu_total,fmt="2.2cM"))
-        str += 'gpu = %s/%s'   % (_format_memsize(self.gpu_avail,fmt="2.2cM"),_format_memsize(self.gpu_total,fmt="2.2cM"))
+        str = ''
+        if self.cpu_avail != None:
+            str += 'cpu = %s/%s; ' % (_format_memsize(self.cpu_avail,fmt="2.2cM"),_format_memsize(self.cpu_total,fmt="2.2cM"))
+        if self.gpu_avail != None:
+            str += 'gpu = %s/%s'   % (_format_memsize(self.gpu_avail,fmt="2.2cM"),_format_memsize(self.gpu_total,fmt="2.2cM"))
         return str
 
 def memory_info(gc=False):
@@ -602,6 +756,12 @@ def sync_backend():
     global _gnumpy_loaded
     if _gnumpy_loaded:
         cudamat.cuda_sync_threads()
+
+def reset_backend():
+    global _gnumpy_loaded
+    if _gnumpy_loaded:
+        cudamat.cuda_device_reset()
+
 
 set_backend('numpy')
 seed_rand(9876)

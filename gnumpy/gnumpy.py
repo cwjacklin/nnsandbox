@@ -49,7 +49,7 @@ _useGpu = _os.environ.get('GNUMPY_USE_GPU', 'auto')
 assert _useGpu in ('auto', 'yes', 'no'), "environment variable GNUMPY_USE_GPU, if present, should be one of 'auto', 'yes', 'no'."
 if _useGpu == 'auto':
  try: import cudamat as _cudamat; _useGpu = 'yes'
- except: print 'gnumpy: failed to import cudamat. Using npmat instead. No GPU will be used.'; _useGpu = 'no'
+ except: print 'gnumpy: failed to import cudamat. Using npmat instead. No GPU will be used.'; _useGpu = 'no'; raise
 if _useGpu == 'yes':
  import cudamat as _cudamat
 elif _useGpu == 'no':
@@ -174,7 +174,7 @@ def _cm_col_slice_read(cm, start, end, target):
  return target
 
 def _cm_row_slice_read(cm, start, end):
- if start==end: return _new_cm((0, cm.shape[0])) # cudamat special case workaround
+ if start==end: return _new_cm((0, cm.shape[0]),dtype=cm.dtype) # cudamat special case workaround
  if cm.shape[1]==1 and start==0 and end==1: return cm # cudamat special case workaround
  ret = cm.get_col_slice(start, end)
  return ret
@@ -209,7 +209,7 @@ _memoryUsers = _collections.defaultdict(lambda: (0, 0))
 track_memory_usage = False
 tracked_arrays = _weakref.WeakValueDictionary() # dict of id() to array. The key is never used. This remains empty if track_memory_usage remains False.
 
-def _new_cm(sizeOrShape):
+def _new_cm(sizeOrShape,dtype):
  """
  Internal.
  Returns a new CUDAMatrix object of the given size.
@@ -217,10 +217,10 @@ def _new_cm(sizeOrShape):
  """
  global __memoryInUse
  if type(sizeOrShape) == tuple:
-  if _prodT(sizeOrShape)==0: return _new_cm(1) # cudamat workaround: cudamat can't handle size 0 arrays
-  else: return _new_cm(sizeOrShape[0]*sizeOrShape[1]).reshape((sizeOrShape[1], sizeOrShape[0]))
+  if _prodT(sizeOrShape)==0: return _new_cm(1,dtype=dtype) # cudamat workaround: cudamat can't handle size 0 arrays
+  else: return _new_cm(sizeOrShape[0]*sizeOrShape[1],dtype=dtype).reshape((sizeOrShape[1], sizeOrShape[0]))
  size = sizeOrShape
- if size==0: return _cudamat.empty((1, 1)) # cudamat workaround
+ if size==0: return _cudamat.empty((1, 1),dtype=dtype) # cudamat workaround
  if len(_cmsForReuse[size])!=0:
   return _cm_reshape(_cmsForReuse[size].pop(), (1, size)) # re-use an abandoned cm
  _init_gpu()
@@ -230,7 +230,7 @@ def _new_cm(sizeOrShape):
   if __memoryInUse+size*4 > max_memory_usage:
    raise MemoryError('Gnumpy ran out of memory. Currently in use are %s; the maximum allowed is %s; so the present request for %s is refused. Free some memory and try again.' % (_n_bytes_str(__memoryInUse), _n_bytes_str(max_memory_usage), _n_bytes_str(size*4)))
  try:
-  ret = _cudamat.empty((size, 1))
+  ret = _cudamat.empty((size, 1),dtype=dtype)
   __memoryInUse += size*4 # do this only if the malloc succeeded
   return ret
  except _cudamat.CUDAMatException, e: # this means that malloc failed
@@ -313,11 +313,11 @@ def _rand__base(shapeInfo, distribution, zero_d_means_scalar):
  if len(shapeInfo) == 0 and zero_d_means_scalar: return ret.item()
  else: return ret
 
-def tile(a, reps):
+def tile(a, reps, dtype='float32'):
  if type(reps) in _numberTypes: reps = (reps,)
  reps = tuple(reps) # for generator expressions
  if type(a) in _numberTypes:
-  ret = empty(reps)
+  ret = empty(reps,dtype=dtype)
   ret._base.assign(a)
   return ret
  a = as_garray(a)
@@ -330,7 +330,7 @@ def tile(a, reps):
   if reps[i]!=1 and reps[i+1]!=1 and a.shape[i]==1: return a.reshape(_deleteT2(a.shape, i)).tile(reps[:i]+(_prodT(reps[i:i+2]),)+reps[i+2:]).reshape(map(operator.mul, a.shape, reps))
  def dataIDone(nextA, i): return nextA.reshape(_modifyT(a.shape, i, a.shape[i]*reps[i])).tile(_modifyT(reps, i, 1))
  if reps[0]!=1: # replicating rows is easy and efficient: just repeat the data a number of times.
-  temp = empty((reps[0], a.size)) # shape doesn't matter because dataIDone changes it
+  temp = empty((reps[0], a.size),dtype=dtype) # shape doesn't matter because dataIDone changes it
   tempCm = temp._base_shaped(1)
   if reps[0]>=1:
    _cm_row_slice_read(tempCm, 0, 1).assign(a._base_as_row())
@@ -356,13 +356,13 @@ def randn(*shapeInfo):
  """ the desired array shape can be entered either as integers or as a tuple of integers. If you enter a tuple you always get an array; if you enter nothing you get a scalar. """
  return _rand__base(shapeInfo, 'normal', True)
 
-def empty(shape):
+def empty(shape,dtype='float32'):
  if _isSequence(shape) or type(shape) == types.GeneratorType: shape = tuple(shape)
  else: shape = (shape,)
- return garray(_new_cm(_prodT(shape)), shape, None)
+ return garray(_new_cm(_prodT(shape),dtype=dtype), shape, None)
 
-def zeros (shape): return tile(0, shape)
-def ones (shape): return tile(1, shape)
+def zeros (shape,dtype='float32'): return tile(0, shape,dtype)
+def ones (shape,dtype='float32'): return tile(1, shape,dtype)
 
 def seed_rand(seed=None):
  _init_gpu()
@@ -382,7 +382,7 @@ def dot(a1, a2):
  if a1.ndim==a2.ndim==2:
   retShape = (a1.shape[0], a2.shape[1])
   if a1.shape[1]==0: return zeros(retShape) # cudamat bug workaround
-  ret = empty(retShape)
+  ret = empty(retShape,dtype=a1.dtype)
   if ret.size!=0: _cudamat.dot(a2._base_as_2d(), a1._base_as_2d(), ret._base_as_2d())
   return ret
  if a1.ndim >= 2 and a2.ndim >= 2:
@@ -399,13 +399,16 @@ def outer(vec1, vec2): return dot(vec1.ravel()[:, newaxis], vec2.ravel()[newaxis
 
 def concatenate(arrays, axis=0):
  arrays = tuple(map(as_garray, arrays))
+ dtype = arrays[0]
+ for a in arrays:
+     assert(a.dtype == dtype)
  if axis<0: axis += arrays[0].ndim
  if not _isSequence(arrays) or not type(axis) in _numberTypes: raise ValueError('wrong argument types to gnumpy.concatenate: expected <arrays> to be a sequence and <axis> to be a number, but got types %s and %s.' % (type(arrays), type(axis)))
  if axis not in range(arrays[0].ndim): raise ValueError('bad axis number (%d) specified (the first array has %d axes)' % (axis, arrays[0].ndim))
  if not _allTheSame( _deleteT2(a.shape, axis) for a in arrays): raise ValueError('array dimensions must agree except possibly for axis #%d. The given array shapes are: %s' % (axis, tuple( a.shape for a in arrays)))
  finalShape = _modifyT(arrays[0].shape, axis, __builtin__.sum( a.shape[axis] for a in arrays))
  if axis==0:
-  ret = empty(finalShape)
+  ret = empty(finalShape,dtype=dtype)
   nextI = 0
   for a in arrays:
    _cm_row_slice_read(ret._base_shaped(ret.ndim), nextI, nextI+a.size).assign(a._base_shaped(a.ndim))
@@ -585,12 +588,14 @@ class garray(object):
  def nbytes(self): return self.size * 4
  @property
  def nMBytes(self): return self.nbytes / 2**20
+ @property
+ def dtype(self): return self._base.dtype()
   
  def _base_shaped(self, nDimsAsRows): return _cm_reshape(self._base, (_prodT(self.shape[:nDimsAsRows]), _prodT(self.shape[nDimsAsRows:])))
  def _base_as_row(self): return _cm_reshape(self._base, (1, self.size))
  def _base_as_2d(self): return self._base.reshape((self.shape[1], self.shape[0])) # optimized from self._base_shaped(1) by inlining
  
- def _new_cm(self, nDimsAsRows=0): return _new_cm((_prodT(self.shape[:nDimsAsRows]), _prodT(self.shape[nDimsAsRows:]))) # same size as self, with given shape
+ def _new_cm(self, nDimsAsRows, dtype): return _new_cm((_prodT(self.shape[:nDimsAsRows]), _prodT(self.shape[nDimsAsRows:])),dtype=dtype) # same size as self, with given shape
  
  def _new(self, cm): return garray(cm, self.shape, None) # short notation for the result of elementwise ops
  
@@ -609,7 +614,7 @@ class garray(object):
   basicHandler = {'add': _cmType.add, 'multiply': _cmType.mult, 'less than': _cmType.less_than, 'greater than': _cmType.greater_than, 'pow': _cudamat.pow}[operatorName]
   if (type(other) in _numberTypes or (other.size==1 and other.ndim <= self.ndim)): # having other be a scalar is faster than doing a broadcast
    if _isTijmen: numTimeIncurred(self.size, 'AS eltwise')
-   return self._new(basicHandler(self._base_as_row(), ( other.item() if isinstance(other, garray) else other), self._new_cm()))
+   return self._new(basicHandler(self._base_as_row(), ( other.item() if isinstance(other, garray) else other), self._new_cm(0,dtype=self.dtype)))
   if operatorName=='pow': raise NotImplementedError('a**b where b is anything other than a scalar')
   other = as_garray(other)
   if self.ndim > other.ndim: other = other._add_axes(self.ndim)
@@ -617,7 +622,7 @@ class garray(object):
   if operatorName in ('less than', 'greater than'):
    self2 = self._tile_to_broadcast(other.shape)
    if _isTijmen: numTimeIncurred(self.size, 'eltwise binary, no bc')
-   return self2._new(basicHandler(self2._base_as_row(), other._tile_to_broadcast(self2.shape)._base_as_row(), self2._new_cm()))
+   return self2._new(basicHandler(self2._base_as_row(), other._tile_to_broadcast(self2.shape)._base_as_row(), self2._new_cm(0,dtype=self.dtype)))
   if self.ndim < other.ndim: return other._broadcastable_op(self, operatorName) # now self.ndim == other.ndim
   selfToBroadcast =  tuple( self.shape[i]==1 and other.shape[i]!=1 for i in range(self.ndim))
   otherToBroadcast = tuple( other.shape[i]==1 and self.shape[i]!=1 for i in range(self.ndim))
@@ -627,11 +632,11 @@ class garray(object):
   if reduce(operator.or_, ( other.shape[i] not in (1, self.shape[i]) for i in range(self.ndim)), False): raise ValueError('shape mismatch: objects cannot be broadcast to a single shape')
   if not reduce(operator.or_, otherToBroadcast, False): # handle case: nothing to bc
    if _isTijmen: numTimeIncurred(self.size, 'eltwise binary, no bc')
-   return self._new(( _cmType.add if operatorName=='add' else _cmType.mult)(self._base_as_row(), other._base_as_row(), self._new_cm()))
+   return self._new(( _cmType.add if operatorName=='add' else _cmType.mult)(self._base_as_row(), other._base_as_row(), self._new_cm(0,dtype=self.dtype)))
   if self.size==0: return self
   if bci == tuple(xrange(len(bci))): # handle case: only the first dims need broadcasting
    if operatorName in ('multiply', 'add') and _isTijmen and usingGpu(): # using optimized cuda code
-    ret = empty(self.shape)
+    ret = empty(self.shape,dtype=self.dtype)
     axis0len = _prodT(self.shape[:len(bci)])
     axis1len = _prodT(self.shape[len(bci):])
     nThreadsPerBlock = 512
@@ -644,10 +649,10 @@ class garray(object):
    #return self._new(( _cmType.add_col_vec if operatorName=='add' else _cmType.mult_by_col)(self._base_shaped(len(bci)), other._base_as_row(), self._new_cm(len(bci))))
   if bci == tuple(xrange(self.ndim-len(bci), self.ndim)): # handle case: only the last dims need broadcasting
    if _isTijmen: numTimeIncurred(self.size, 'eltwise bc axis -1')
-   return self._new(( _cmType.add_row_vec if operatorName=='add' else _cmType.mult_by_row)(self._base_shaped(self.ndim-len(bci)), other._base_shaped(self.ndim-len(bci)), self._new_cm(self.ndim-len(bci))))
+   return self._new(( _cmType.add_row_vec if operatorName=='add' else _cmType.mult_by_row)(self._base_shaped(self.ndim-len(bci)), other._base_shaped(self.ndim-len(bci)), self._new_cm(self.ndim-len(bci),dtype=self.dtype)))
   # remaining case: broadcasting neither just the first dims nor just the last dims. this can be done very intelligently, but for now I won't bother
   if operatorName=='multiply' and len(bci)==1 and cudamatHas('multiplyBcAxis1'): # special case: using optimized multiplyBcAxis1 (my cuda code)
-   ret = empty(self.shape)
+   ret = empty(self.shape,dtype=self.dtype)
    axisI = bci[0]
    axis0len = _prodT(self.shape[:bci[0]])
    axis1len = self.shape[bci[0]]
@@ -667,7 +672,7 @@ class garray(object):
 
  def _elementwise_unary(self, handler):
   if _isTijmen: numTimeIncurred(self.size, handler.__name__)
-  return _check_number_types(self._new(handler(self._base_as_row(), self._new_cm())))
+  return _check_number_types(self._new(handler(self._base_as_row(), self._new_cm(0,dtype=self.dtype))))
 
  def _reduction__base(self, operatorName, axis):
   if axis==None: return self.ravel()._reduction__base(operatorName, 0).item()
@@ -676,11 +681,11 @@ class garray(object):
   axis = int(axis) % self.ndim
   if self.size==0:
    retShape = _deleteT2(self.shape, axis)
-   if operatorName=='sum': return zeros(retShape)
-   elif operatorName=='max': return tile(-inf, retShape)
+   if operatorName=='sum': return zeros(retShape,dtype=self.dtype)
+   elif operatorName=='max': return tile(-inf, retShape, dtype=self.dtype)
    else: assert False
   if operatorName=='max' and axis==0 and cudamatHas('maxAxis0'): # my own fast implementation
-   ret = empty(self.shape[1:])
+   ret = empty(self.shape[1:],dtype=self.dtype)
    _ctInt = _cudamat.ct.c_int
    nThreadsPerBlock = 32
    gridX, gridY = ((ret.size+nThreadsPerBlock-1)//nThreadsPerBlock), 1
@@ -702,7 +707,7 @@ class garray(object):
   if operatorName=='max' and self.isnan().any2(): # cudamat bug workaround
    return garray(self.asarray().max(axis))
   operatorInCm = {'sum': _cmType.sum, 'max': _cmType.max}[operatorName]
-  if axis==0: return _check_number_types(garray(operatorInCm(self._base_shaped(1), 1, _new_cm(_prodT(self.shape[1:]))), self.shape[1:], None))
+  if axis==0: return _check_number_types(garray(operatorInCm(self._base_shaped(1), 1, _new_cm(_prodT(self.shape[1:]),self.dtype)), self.shape[1:], None))
   if axis==self.ndim-1:
    if self.ndim!=2: return self.reshape_2d(-1)._reduction__base(operatorName, 1).reshape(self.shape[:-1])
    if self.ndim==2:
@@ -713,14 +718,14 @@ class garray(object):
                       for chunkI in range(nChunks)])
      return concatenate([ chunk._reduction__base(operatorName, 1) for chunk in chunks])
     else: # small array
-     return _check_number_types(garray(operatorInCm(self._base_shaped(1), 0, _new_cm((len(self), 1))), (len(self),), None))
+     return _check_number_types(garray(operatorInCm(self._base_shaped(1), 0, _new_cm((len(self), 1),self.dtype)), (len(self),), None))
   return self.transpose_simple(axis)._reduction__base(operatorName, 0).transpose_simple(-axis)
  
 
  
  # ------------------------------------------------------------------------------- external misc non-numerical
  
- def __init__(self, data, copy=True, ndmin=0):
+ def __init__(self, data, copy=True, ndmin=0, dtype=None):
   """ the parameters mean the same as in numpy.array() """
   if type(data)!=_cmType: assert copy in (True, False) and type(ndmin) in _numberTypes, 'garray() parameters copy=%s, ndmin=%s are not of the right type' % (str(copy), str(ndmin))
   if type(data)==_cmType: # internal use only. the 3 arguments are, unlike their names suggest, the ._base, .shape, ._is_alias_of
@@ -734,23 +739,27 @@ class garray(object):
   elif isinstance(data, garray):
    if ndmin>0: data = data._add_axes(ndmin)
    garray.__init__(self, 
-    ( _new_cm(data.size).assign(data._base_as_row()) if copy else data._base),
+    ( _new_cm(data.size,dtype=data.dtype).assign(data._base_as_row()) if copy else data._base),
     data.shape,
     ( None if copy else data))
   elif type(data) == types.GeneratorType: garray.__init__(self, tuple(data), ndmin=ndmin)
   elif _isSequence(data):
-   if len(data)==0 or not _any2_(data, is_garray): garray.__init__(self, numpy.array(data, ndmin=ndmin), copy=False)
+   npa = numpy.array(data[0], copy=False); dtype = npa.dtype; 
+   if dtype == 'int32': dtype = 'uint32'
+   if len(data)==0 or not _any2_(data, is_garray): garray.__init__(self, numpy.array(data, ndmin=ndmin, dtype=dtype), copy=False)
    else: garray.__init__(self, concatenate( as_garray(element)[None] for element in data), ndmin=ndmin) # no need to copy, because concat copies.
   else: # remaining cases. essentially init from numpy array.
    npa = numpy.array(data, copy=False) # in case data was a number
    if str(npa.dtype) in ('object', '|S3'): raise TypeError('Cannot convert "%s" to a garray.' % data) 
    # we're not using the cudamat constructor, because that always allocs gpu mem, and this way the mem may come from re-use.
-   cm = _new_cm(npa.size)
+   if dtype == None:
+       dtype = str(npa.dtype)
+   cm = _new_cm(npa.size,dtype=dtype)
    if not hasattr(cm, 'numpy_array'):
     #cm.copy_to_host() # if cm was created using cudamat.empty, this is needed to associate cm with a numpy array
     # follows an inlined version of the relevant portion of cm.copy_to_host(). This is quicker because it doesn't actually copy.
-    cm.numpy_array = numpy.empty((cm.mat.size[0], cm.mat.size[1]), dtype=numpy.float32, order='F')
-    cm.mat.data_host = cm.numpy_array.ctypes.data_as(_ctypes.POINTER(_ctypes.c_float))
+    cm.numpy_array = numpy.empty((cm.mat.size[0], cm.mat.size[1]), dtype=dtype, order='F')
+    cm.mat.data_host = cm.numpy_array.ctypes.data_as(_ctypes.c_void_p)
     cm.mat.on_host = 1
    if npa.size!=0: cm.numpy_array[:] = npa.reshape((-1, 1), order='C') # no cudamat.reformat is needed, because that's only dtype and order change, which are handled by the assignment anyway
    cm.copy_to_device()
@@ -758,13 +767,20 @@ class garray(object):
 
  def __new__(cls, *args, **kwarg): return object.__new__(cls)
    
- def as_numpy_array(self, dtype=numpy.float64):
+ def as_numpy_array(self, dtype=None):
+  if dtype == None: dtype = self.dtype
   if self.size==0: return numpy.zeros(self.shape, dtype)
   return numpy.array(self._base_as_row().asarray(), copy=True, order='C', dtype=dtype).reshape(self.shape)
  
  asarray = as_numpy_array # the cudamat name
  
- def astype(self, type): return self.asarray().astype(type)
+ #def astype(self, dtype): return self.asarray().astype(dtype)
+ def astype(self, dtype): 
+     if dtype == self.dtype:
+         return self
+     target = empty(self.shape,dtype=dtype)
+     _cudamat.convert_dtype(self._base_as_row(),target._base_as_row())
+     return target
  
  tile = tile
  
@@ -805,7 +821,7 @@ class garray(object):
     for i in range((self.shape[0]+10**6-1)//10**6):
      ret[:, i*10**6 : (i+1)*10**6] = self[i*10**6 : (i+1)*10**6].T 
     return ret
-   return garray(self._base_as_2d().transpose(_new_cm(tuple(reversed(self.shape)))), tuple(reversed(self.shape)), None)
+   return garray(self._base_as_2d().transpose(_new_cm(tuple(reversed(self.shape)),self.dtype)), tuple(reversed(self.shape)), None)
   else: return self.transpose()  
 
  def transpose_simple(self, nDimsToGroup):
@@ -971,13 +987,13 @@ class garray(object):
  
  def __sub__(self, other):
   if isinstance(other, garray) and other.shape==self.shape: # use specialized method
-   return self._new(self._base_as_row().subtract(other._base_as_row(), self._new_cm()))
+   return self._new(self._base_as_row().subtract(other._base_as_row(), self._new_cm(0,dtype=self.dtype)))
   else: return self + -as_garray(other) # if i need to broadcast, making use of the row add and col add methods is probably faster
  
  def __div__(self, other):
   if type(other) in _numberTypes: return self * (1./other)
   other = as_garray(other)
-  return self * other._new(other._base_as_row().reciprocal(other._new_cm()))
+  return self * other._new(other._base_as_row().reciprocal(other._new_cm(0,dtype=self.dtype)))
 
  def __rmul__(self, other): return self*other
  def __radd__(self, other): return self+other
@@ -1035,7 +1051,7 @@ class garray(object):
     if axisI==0:
      if _doExpensiveCheck() and (axisSelector> len(self)-.01).sum() !=0: raise IndexError('index %d (found in an indices array) is too large, for an axis of length %d' % (max(axisSelector), len(self)))
      if _doExpensiveCheck() and (axisSelector<-len(self)-.5).sum() !=0: raise IndexError('index %d (found in an indices array) is too small, for an axis of length %d' % (min(axisSelector), len(self)))
-     return garray(self._base_shaped(1).select_columns(axisSelector._base_shaped(axisSelector.ndim), _new_cm((axisSelector.size, self.size/self.shape[0]))), axisSelector.shape + self.shape[1:], None)
+     return garray(self._base_shaped(1).select_columns(axisSelector._base_shaped(axisSelector.ndim), _new_cm((axisSelector.size, self.size/self.shape[0]),self.dtype)), axisSelector.shape + self.shape[1:], None)
     else: return self.transpose_simple(axisI)[axisSelector].transpose_simple(-axisI)
    else: return (concatenate(tuple( self[_modifyT(selectors, axisI, slice(choiceOnThisAxis, choiceOnThisAxis+1))] for choiceOnThisAxis in axisSelector.ravel()), axisI)
                  .reshape(self.shape[:axisI] + axisSelector.shape + self.shape[axisI+1:]))
@@ -1053,7 +1069,7 @@ class garray(object):
   if self.shape[0]==1: # then redo as row slice. This also avoids a cudamat limitation (on slicing many columns), sometimes.
    return self.ravel()[sFrom:sTo][newaxis].copy()
   # _base case for column slice
-  retCm = _new_cm(retShape)
+  retCm = _new_cm(retShape,self.dtype)
   _cm_col_slice_read(self._base_shaped(1), sFrom, sTo, retCm)
   return garray(retCm, retShape, None)
 
@@ -1142,7 +1158,8 @@ class garray(object):
   if _envInstruction=='warn': print "gnumpy: warning: a garray object is being quietly converted to a numpy array, and the environment variable GNUMPY_IMPLICIT_CONVERSION is set to 'warn'. garray objects can be explicitly converted using the .as_numpy_array() method."
   return self.as_numpy_array().__array__(*dtype)
   
- def __repr__(self): return self.as_numpy_array().__repr__().replace('array(', 'garray(').replace('\n', '\n ').replace(', dtype=float32', '').replace(', dtype=float64', '') # 64 happens for empty arrays
+ def __repr__(self): 
+     return self.as_numpy_array().__repr__().replace('array(', 'garray(')
   
  def __del__(self):
   if not hasattr(self, '_is_alias_of'):
