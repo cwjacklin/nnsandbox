@@ -7,10 +7,13 @@ Python 2.7+ (tested on 64-bit only)
    http://www.python.org/getit/
 
 Numpy 1.7+ (preferably linked with MKL)
-   http://www.lfd.uci.edu/~gohlke/pythonlibs/#numpy
+   http://www.lfd.uci.edu/~gohlke/pythonlibs/#numpy  (Win64)
 
 SciPy:
-   http://www.lfd.uci.edu/~gohlke/pythonlibs/#scipy
+   http://www.lfd.uci.edu/~gohlke/pythonlibs/#scipy  (Win64)
+
+Matplotlib:
+   http://matplotlib.org/downloads.html
 
 
 INSTALLATION
