@@ -43,9 +43,10 @@ Unzip, cd to the top source directory, and run
 for usage instructions.
 
 INSTALLATION -- LINUX
------------------------
+---------------------
+Unzip, cd to the top source directory.
 You must build gnumpy/libcudamat.so yourself, so you'll need
-the full CUDA SDK installed.
+the full CUDA SDK installed. Steps below provided by Alireza Makhzani.
 
 Make sure you can run "nvcc" from your terminal.
 If not, run
@@ -59,3 +60,7 @@ For 64-bit, make sure the lib64 path comes first:
 
 Go to the gnumpy/ subdirectory, and run "make".
 If the above step fails, try to install nose.
+
+Now from the top source directory (parent of gnumpy/) run
+   python test_mnist.py
+for usage instructions.
