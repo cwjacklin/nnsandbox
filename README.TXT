@@ -35,8 +35,10 @@ INSTALLATION -- WINDOWS
 The code is normally tested on Visual Studio 2010, and so it
 comes with libcudamat.dll compiled for x64. To recompile
 the DLL, use gnumpy/gnumpy.sln. You must have the CUDA runtime
-DLLs (cudart.dll,cublas.dll) etc
-somewhere in your path, or the dll will fail to load.
+DLLs (cudart64_50_35.dll,cublas64_50_35.dll,etc...)
+somewhere in your path, or libcudamat.dll will fail to load.
+For example, with the SDK they are in:
+   C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.0\bin
 
 Unzip, cd to the top source directory, and run
    python test_mnist.py
