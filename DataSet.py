@@ -93,7 +93,8 @@ class DataSet(object):
         self._Y = bm.asarray(Y) if not (X is Y) else self._X
         self._Xtest = bm.asarray(Xtest)
         self._Ytest = bm.asarray(Ytest) if not (X is Y) else self._Xtest
-        print "Host->Device transfer of dataset took %.3fs" % (now()-t0)
+        if bm.backend_name == "gnumpy":
+            print "Host->Device transfer of dataset took %.3fs" % (now()-t0)
         self._size  = X.shape[0]
         self._Xrescale = (1.,0.) #scale,bias
         self.max_batchsize = max_batchsize

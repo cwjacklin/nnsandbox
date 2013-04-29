@@ -25,6 +25,7 @@ except ImportError:
 
 default_dtype = 'float32'
 backend = None   # NumpyBackend or GnumpyBackend
+backend_name = None 
 gradcheck_mode = False
 device_prop = None
 
@@ -626,6 +627,7 @@ def cauchy(A,lambd,beta,out=None): return backend.cauchy(A,lambd,beta,out)
 
 def set_backend(name,dtype='float32',device=None):
     global backend
+    global backend_name
     global default_dtype
     global device_prop
     global _gnumpy_loaded
@@ -635,6 +637,7 @@ def set_backend(name,dtype='float32',device=None):
             print "warning: cannot set backend to gnumpy; module 'gnumpy' failed to import; using numpy instead"
             return
         backend = GnumpyBackend
+        backend_name = name
         default_dtype = 'float32'
         if device == None:
             device = 0
@@ -652,6 +655,7 @@ def set_backend(name,dtype='float32',device=None):
 
     elif name == 'numpy':
         backend = NumpyBackend
+        backend_name = name
         default_dtype = dtype
     else:
         raise ValueError("unrecognized backend '%s'" % name)
