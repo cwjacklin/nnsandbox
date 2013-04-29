@@ -1,5 +1,5 @@
 nnsandbox -- basic numpy/gpu neural net implementation 
-===============================================
+======================================================
 
 REQUIREMENTS
 ------------
@@ -15,14 +15,47 @@ SciPy:
 Matplotlib:
    http://matplotlib.org/downloads.html
 
+CUDA Runtime and/or SDK:
+   https://developer.nvidia.com/cuda-downloads
 
-INSTALLATION
-------------
+The code comes with a modified version of Cudamat and Gnumpy 
+libraries in the gnumpy/ subdirectory. 
+These libraries are needed for the GPU code path to work.
+The original, unmodified libraries are available at:
+
+Cudamat: by Vladimir Mnih.
+   https://code.google.com/p/cudamat/
+
+Gnumpy: by Tijmen Tieleman.
+   http://www.cs.toronto.edu/~tijmen/gnumpy.html
+
+
+INSTALLATION -- WINDOWS
+-----------------------
+The code is normally tested on Visual Studio 2010, and so it
+comes with libcudamat.dll compiled for x64. To recompile
+the DLL, use gnumpy/gnumpy.sln. You must have the CUDA runtime
+DLLs (cudart.dll,cublas.dll) etc
+somewhere in your path, or the dll will fail to load.
+
 Unzip, cd to the top source directory, and run
-    python test_mnist.py
+   python test_mnist.py
 for usage instructions.
 
-The code has only been tested on Windows so far, but the main
-only complication for setup on Linux should be building
-libcudamat.so inside the gnumpy/ subdirectory.
+INSTALLATION -- LINUX
+-----------------------
+You must build gnumpy/libcudamat.so yourself, so you'll need
+the full CUDA SDK installed.
 
+Make sure you can run "nvcc" from your terminal.
+If not, run
+   export PATH=$PATH:/usr/local/cuda/bin
+
+Make sure gcc can find your CUDA SDK installation...
+For 32-bit installations, you can run
+   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib
+For 64-bit, make sure the lib64 path comes first:
+   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64:/usr/local/cuda/lib
+
+Go to the gnumpy/ subdirectory, and run "make".
+If the above step fails, try to install nose.
