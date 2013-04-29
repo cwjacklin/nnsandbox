@@ -109,11 +109,6 @@ class TrainingReport(object):
         the 'trainer'. 
         '''
         trainer = self.trainer()
-        # Only update stats at certain epoch intervals, for the sake of training speed
-        if event == "epoch" and (trainer.epoch - self._last_update_epoch) < int(self.interval):
-            return
-        self._last_update_epoch = trainer.epoch
-        self.interval *= self.interval_rate  # speed up or slow down the rate of updates that get logged
 
         stats = {}
         stats["time"]  = now() - self._start_time
@@ -121,8 +116,13 @@ class TrainingReport(object):
         stats["learn_rate"] = trainer.learn_rate
         stats["momentum"]   = trainer.momentum
         stats["slowness"]   = trainer.slowness
-        for fold in ('train','valid','test'):
-            stats[fold] = self._collect_stats_on_fold(fold)
+
+        # Only update stats at certain epoch intervals, for the sake of training speed
+        if event != "epoch" or (trainer.epoch - self._last_update_epoch) >= int(self.interval):
+            for fold in ('train','valid','test'):
+                stats[fold] = self._collect_stats_on_fold(fold)
+            self._last_update_epoch = trainer.epoch
+            self.interval *= self.interval_rate  # speed up or slow down the rate of updates that get logged
 
         if self.callback:
             self._callback_msg = self.callback(event,stats)
@@ -134,21 +134,22 @@ class TrainingReport(object):
         msg = '%5.1fs: ' % stats['time']
         if event == 'epoch': msg += '[%3d]' % stats['epoch']
         else:                msg += event
-        trstats = stats['train']
+        trstats = stats.get('train',None)
 
-        if self.trainer().task() == "classification":
-            # classification-specific output format
-            msg += ': err=%.2f%%' % trstats['error rate']
-            if stats['valid']:  msg += '/%.2f%%' % stats['valid']['error rate']
-            if stats['test']:   msg += '/%.2f%%' % stats['test']['error rate']
-        else:
-            # regression-specific output format
-            msg += ': loss=%.3f' % trstats['loss']
-            if stats['valid']:  msg += '/%.3f' % stats['valid']['loss']
-            if stats['test']:   msg += '/%.3f' % stats['test']['loss']
+        if trstats:
+            if self.trainer().task() == "classification":
+                # classification-specific output format
+                msg += ': err=%.2f%%' % trstats['error rate']
+                if stats['valid']:  msg += '/%.2f%%' % stats['valid']['error rate']
+                if stats['test']:   msg += '/%.2f%%' % stats['test']['error rate']
+            else:
+                # regression-specific output format
+                msg += ': loss=%.3f' % trstats['loss']
+                if stats['valid']:  msg += '/%.3f' % stats['valid']['loss']
+                if stats['test']:   msg += '/%.3f' % stats['test']['loss']
 
-        # common epilogue: training loss + regularizer + penalty
-        msg += '; (%.3f+%.3f+%.3f)' % (trstats['loss'],trstats['regularizer'],trstats['penalty'])
+            # common epilogue: training loss + regularizer + penalty
+            msg += '; (%.3f+%.3f+%.3f)' % (trstats['loss'],trstats['regularizer'],trstats['penalty'])
 
         # common epilogue: learning rate and momentum
         msg += ' r=%.4f' % stats['learn_rate']
@@ -160,7 +161,7 @@ class TrainingReport(object):
         logger = logging.getLogger()
         logger.info(msg)
 
-        if self.visualize:
+        if self.visualize and trstats != None:
             self._window.log(event,stats,msg)
 
         self._update_log(event,stats,msg)
@@ -234,7 +235,7 @@ class TrainingReport(object):
         global _num_logfile_entries
         global _best_logfile_errors
 
-        if self.log_mode == 'none':
+        if self.log_mode == 'none' or not stats.has_key('train'):
             return
 
         str = ""
@@ -528,7 +529,7 @@ class TrainingReportFeatureGrid(Figure):
             # Filters going into first layer of hidden units
             W,b = self._model.weights[0]
             W = bm.as_numpy(W).copy().transpose()
-            W += bm.as_numpy(b).transpose()
+            #W += bm.as_numpy(b).transpose()
             W = W.reshape(tuple([-1]) + self._featshape)
         else:
             # Templates going out of final layer of hidden units

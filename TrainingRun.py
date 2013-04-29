@@ -53,8 +53,6 @@ class TrainingRun(object):
             self.learn_rate *= self.learn_rate_decay**(self.epoch-1)
             self.momentum    = self._calc_scheduled_rate(self.momentum_schedule,self.momentum)
             self.slowness    = self._calc_scheduled_rate(self.slowness_schedule,self.slowness)
-            #model._cfg[2].slowness = self.slowness*.15
-            #model._cfg[3].slowness = self.slowness
 
             # Inner loop over one shuffled sweep of the data
             for batch in self.batches:
@@ -77,8 +75,6 @@ class TrainingRun(object):
                 # Apply any model constraints, like clipping norm of weights
                 model.apply_constraints()
 
-            #model._cfg[1].tied *= .998**self.epoch
-            #model._cfg[2].tied *= 0.99**self.epoch
             self.log('epoch')
 
         self.log('stop')

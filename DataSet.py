@@ -74,6 +74,15 @@ class DataSet(object):
     a 'train', 'valid', and 'test.
     '''
     def __init__(self,X,Y,Xshape=None,Yshape=None,Xrange=None,Yrange=None,shuffle=True,max_batchsize=1):
+        if isinstance(X,dict):
+            Xtest = X['test']
+            Ytest = Y['test']
+            X = X['train']
+            Y = Y['train']
+        else:
+            Xtest = X[0,:]   # empty
+            Ytest = Y[0,:]   # empty
+
         if shuffle:
             perm = random.permutation(X.shape[0])
             X = take(X,perm,axis=0)
@@ -82,6 +91,8 @@ class DataSet(object):
         t0 = now()
         self._X = bm.asarray(X)
         self._Y = bm.asarray(Y) if not (X is Y) else self._X
+        self._Xtest = bm.asarray(Xtest)
+        self._Ytest = bm.asarray(Ytest) if not (X is Y) else self._Xtest
         print "Host->Device transfer of dataset took %.3fs" % (now()-t0)
         self._size  = X.shape[0]
         self._Xrescale = (1.,0.) #scale,bias
@@ -99,7 +110,7 @@ class DataSet(object):
         rs = self._rowslice(0,self._size)
         self.train = DataFold(self._X[rs,:],self._Y[rs,:])
         self.valid = DataFold(self._X[0:0,:],self._Y[0:0,:])
-        self.test  = DataFold(self._X[0:0,:],self._Y[0:0,:])
+        self.test  = DataFold(self._Xtest,self._Ytest)
 
     def keys(self):   return ['train','valid','test']
     def values(self): return [self.train,self.valid,self.test]
@@ -117,22 +128,17 @@ class DataSet(object):
         raise KeyError("invalid key for DataSet fold")
 
     def split(self,trainsplit,validsplit=0,testsplit=0):
-        assert(trainsplit + validsplit + testsplit <= 100)
+        assert(trainsplit + validsplit <= 100)
         trainsize = int(trainsplit * self._size // 100)
         validsize = int(validsplit * self._size // 100)
-        testsize  = int(testsplit  * self._size // 100)
         trs = self._rowslice(0,trainsize)
         vas = self._rowslice(trainsize,trainsize+validsize) 
-        tes = self._rowslice(trainsize+validsize,trainsize+validsize+testsize) 
         self.train.X    = self._X[trs,:]
         self.train.Y    = self._Y[trs,:]
         self.train.size = self.train.X.shape[0]
         self.valid.X    = self._X[vas,:]
         self.valid.Y    = self._Y[vas,:]
         self.valid.size = self.valid.X.shape[0]
-        self.test.X     = self._X[tes,:]
-        self.test.Y     = self._Y[tes,:]
-        self.test.size  = self.test.X.shape[0]
 
     def rescale(self,Xrange,Yrange):
         '''
@@ -170,25 +176,24 @@ class DataSet(object):
 
 ################################################
 
-def load_mnist(digits=range(10),split=[50,15,35]):
-    X,Y = [],[]
-    for d in digits:
-        for set in ('train','test'):
+def load_mnist(digits=range(10)):
+    X,Y = {},{}
+    for fold in ('train','test'):
+        X[fold],Y[fold] = [],[]  # start with empty lists
+        for d in digits:
             # Load all N instances of digit 'd' as a Nx768 row vector of inputs, 
             # and an Nx10 target vector. 
-            Xd,Yd = quickload("data/mnist/mnist_%s_%i.pkl" % (set,d))
+            Xd,Yd = quickload("data/mnist/mnist_%s_%i.pkl" % (fold,d))
             Xd = zlib.decompress(Xd) # decompress byte string 
             Yd = zlib.decompress(Yd) # decompress byte string 
             n = len(Xd)/(28*28)
             Xd = ndarray(shape=(n,28*28),buffer=Xd,dtype='uint8') # convert back to numpy array
             Yd = ndarray(shape=(n,10)   ,buffer=Yd,dtype='uint8') # convert back to numpy array
-            X.append(Xd)
-            Y.append(asarray(Yd[:,digits],dtype='float32'))  # make the output dimensionality match the number of actual targets, for faster training on subsets of digits
+            X[fold].append(Xd)
+            Y[fold].append(asarray(Yd[:,digits],dtype='float32'))  # make the output dimensionality match the number of actual targets, for faster training on subsets of digits
+        X[fold] = vstack(X[fold])
+        Y[fold] = vstack(Y[fold])
 
-    X = vstack(X)
-    Y = vstack(Y)
 
-    data = DataSet(X,Y,Xshape=(28,28,1),Xrange=[0.0,255.0],Yrange=[0.0,1.0],shuffle=True)
-    data.split(*split)
-    return data
+    return DataSet(X,Y,Xshape=(28,28,1),Xrange=[0.0,255.0],Yrange=[0.0,1.0],shuffle=True)
     
