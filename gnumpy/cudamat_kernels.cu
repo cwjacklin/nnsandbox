@@ -24,10 +24,10 @@ template <typename R> inline __device__ typename select4<R>::type saturate(float
 	inline __device__ __host__ T##4 operator OP=(T##4& a, T##4 b) { a.x OP= b.x; a.y OP= b.y; a.z OP= b.z; a.w OP= b.w; return a; } \
 	inline __device__ __host__ T##4 operator OP=(T##4& a, T    b) { a.x OP= b;   a.y OP= b;   a.z OP= b;   a.w OP= b;   return a; } 
 
-DEFINE_FUNCTIONS(uchar)
-DEFINE_FUNCTIONS(uint)
-DEFINE_FUNCTIONS(float)
-DEFINE_FUNCTIONS(double)
+//DEFINE_FUNCTIONS(uchar)
+//DEFINE_FUNCTIONS(uint)
+//DEFINE_FUNCTIONS(float)
+//DEFINE_FUNCTIONS(double)
 
 
 
@@ -35,23 +35,23 @@ DEFINE_FUNCTIONS(double)
 
 /* ------------------------- Random number generation ------------------------- */
 
-__device__ float  _exp(float   x) { return __expf(x); }
-__device__ double _exp(double  x) { return   exp(x);  }
-__device__ float  _log(float   x) { return __logf(x); }
-__device__ double _log(double  x) { return   log(x);  }
-__device__ float  _sqrt(float  x) { return sqrtf(x);  }
-__device__ double _sqrt(double x) { return  sqrt(x);  }
-__device__ float  _pow(float  x, float p)  { return __powf(x,p);  }
-__device__ double _pow(double x, double p) { return   pow(x,p);  }
+__device__ __forceinline__ float  _exp(float   x) { return __expf(x); }
+__device__ __forceinline__ double _exp(double  x) { return   exp(x);  }
+__device__ __forceinline__ float  _log(float   x) { return __logf(x); }
+__device__ __forceinline__ double _log(double  x) { return   log(x);  }
+__device__ __forceinline__ float  _sqrt(float  x) { return sqrtf(x);  }
+__device__ __forceinline__ double _sqrt(double x) { return  sqrt(x);  }
+__device__ __forceinline__ float  _pow(float  x, float p)  { return __powf(x,p);  }
+__device__ __forceinline__ double _pow(double x, double p) { return   pow(x,p);  }
 
 
-__device__ unsigned char _exp(unsigned char x)  { return  (unsigned char)_exp((float)x);  }
-__device__ unsigned char _log(unsigned char x)  { return  (unsigned char)_log((float)x);  }
-__device__ unsigned char _sqrt(unsigned char x) { return  (unsigned char)_sqrt((float)x);  }
+__device__ __forceinline__ unsigned char _exp(unsigned char x)  { return  (unsigned char)_exp((float)x);  }
+__device__ __forceinline__ unsigned char _log(unsigned char x)  { return  (unsigned char)_log((float)x);  }
+__device__ __forceinline__ unsigned char _sqrt(unsigned char x) { return  (unsigned char)_sqrt((float)x);  }
 
-__device__ unsigned  _exp(unsigned x)  { return  (unsigned )_exp((double)x);  }
-__device__ unsigned  _log(unsigned x)  { return  (unsigned )_log((double)x);  }
-__device__ unsigned  _sqrt(unsigned x) { return  (unsigned )_sqrt((double)x);  }
+__device__ __forceinline__ unsigned  _exp(unsigned x)  { return  (unsigned )_exp((double)x);  }
+__device__ __forceinline__ unsigned  _log(unsigned x)  { return  (unsigned )_log((double)x);  }
+__device__ __forceinline__ unsigned  _sqrt(unsigned x) { return  (unsigned )_sqrt((double)x);  }
 
 __global__ void kSeedRandom(unsigned int* rndMults, unsigned long long* rndWords, unsigned int seed) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -440,24 +440,24 @@ __global__ void kSquare(T* mat, T* target, unsigned int len) {
 }
 
 template <typename T>
-__global__ void kPow(T* mat, T pow, T* target, unsigned int len) {
+__global__ void kPow(T* mat, T exponent, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = _pow(mat[i], pow);
+        target[i] = _pow(mat[i], exponent);
     }
 }
 
 template <typename T>
-__global__ void kPowMatrix(T* mat, T* pow, T* target, unsigned int len) {
+__global__ void kPowMatrix(T* mat, T* exponent, T* target, unsigned int len) {
     const unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int numThreads = blockDim.x * gridDim.x;
 
     #pragma unroll
     for (unsigned int i = idx; i < len; i += numThreads) {
-        target[i] = _pow(mat[i], pow[i]);
+        target[i] = _pow(mat[i], exponent[i]);
     }
 }
 

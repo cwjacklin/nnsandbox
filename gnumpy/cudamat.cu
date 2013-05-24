@@ -14,7 +14,11 @@
 #define CUDA_THREAD_SYNC() 
 #endif
 
+#ifdef _MSC_VER
 #define DLLEXP __declspec(dllexport)
+#else
+#define DLLEXP
+#endif
 
 extern "C" {
 
